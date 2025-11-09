@@ -23,9 +23,11 @@ npm install
 npm run build
 ```
 
-### 3. Configure Remote
+### 3. Configure Remote (Optional)
 
-Create `config/remotes.json`:
+**You can skip this step!** The system supports ad-hoc connections to any server.
+
+But if you want, create `config/remotes.json` for frequently used servers:
 
 ```json
 {
@@ -64,14 +66,19 @@ Add to Claude Code settings (`~/.config/claude-code/settings.json`):
 
 ### 5. Restart Claude Code & Test
 
-Restart Claude Code, then ask:
+Restart Claude Code, then try connecting to any server:
 
+**Option 1: Ad-hoc connection** (no config needed)
+```
+Connect to ubuntu@your-server.com
+```
+
+**Option 2: Using config** (if you created config/remotes.json)
 ```
 Connect to myserver
 ```
 
-Then:
-
+Then test a command:
 ```
 Run 'uname -a' to show system info
 ```
@@ -131,12 +138,14 @@ Claude Code will automatically:
 
 | What You Say | What Happens |
 |-------------|--------------|
-| "Connect to myserver" | Connects via SSH + tmux |
+| "Connect to ubuntu@192.168.1.100" | Ad-hoc connection via SSH + tmux |
+| "Connect to myserver" | Uses pre-configured host |
+| "Connect to root@server.com on port 2222" | Custom port connection |
 | "Run command X" | Executes X on remote |
 | "Disconnect" | Closes remote connection |
 | "Connection status?" | Shows current status |
 | "Check Docker containers" | Runs `docker ps -a` |
-| "View logs in /var/log/X" | Runs `tail -f /var/log/X` |
+| "View logs in /var/log/X" | Runs appropriate tail command |
 
 ## Troubleshooting
 

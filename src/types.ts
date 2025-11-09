@@ -28,6 +28,7 @@ export interface SSHOptions {
   privateKey?: Buffer;
   identityFile?: string;
   passphrase?: string;
+  password?: string;
 }
 
 export interface ExecOptions {

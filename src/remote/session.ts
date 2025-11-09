@@ -104,15 +104,54 @@ export class RemoteSession extends EventEmitter {
       keepaliveInterval: 10000
     };
 
-    // Handle private key
-    if (options.privateKey) {
+    // Handle authentication
+    if (options.password) {
+      // Password-based authentication
+      sshConfig.password = options.password;
+    } else if (options.privateKey) {
+      // Private key provided directly
       sshConfig.privateKey = options.privateKey;
       if (options.passphrase) {
         sshConfig.passphrase = options.passphrase;
       }
     } else if (options.identityFile) {
+      // Private key from file
       const keyPath = options.identityFile.replace(/^~/, process.env.HOME || '');
-      sshConfig.privateKey = fs.readFileSync(keyPath);
+      try {
+        sshConfig.privateKey = fs.readFileSync(keyPath);
+      } catch (err: any) {
+        throw new RemoteCommandError(
+          `Failed to read SSH key: ${err.message}`,
+          'KEY_READ_FAILED',
+          err
+        );
+      }
+    } else {
+      // Try default SSH keys
+      const defaultKeys = [
+        path.join(process.env.HOME || '~', '.ssh', 'id_rsa'),
+        path.join(process.env.HOME || '~', '.ssh', 'id_ed25519'),
+        path.join(process.env.HOME || '~', '.ssh', 'id_ecdsa')
+      ];
+
+      for (const keyPath of defaultKeys) {
+        if (fs.existsSync(keyPath)) {
+          try {
+            sshConfig.privateKey = fs.readFileSync(keyPath);
+            logger.info(`Using SSH key: ${keyPath}`);
+            break;
+          } catch (err) {
+            logger.debug(`Failed to read ${keyPath}, trying next...`);
+          }
+        }
+      }
+
+      if (!sshConfig.privateKey) {
+        throw new RemoteCommandError(
+          'No SSH key found and no password provided. Please specify identity_file or password.',
+          'NO_AUTH_METHOD'
+        );
+      }
     }
 
     // Connect to SSH

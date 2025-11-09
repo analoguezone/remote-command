@@ -112,17 +112,29 @@ export class RemoteCommandMCPServer {
     return [
       {
         name: 'remote_connect',
-        description: 'Connect to a remote host for command execution. Accepts either a configured host name from config or user@host format.',
+        description: 'Connect to a remote host for command execution. Supports both pre-configured hosts and ad-hoc connections. You can connect to ANY host on-the-fly without pre-configuration.',
         inputSchema: {
           type: 'object',
           properties: {
             host: {
               type: 'string',
-              description: 'Remote host to connect to (config name or user@host[:port])'
+              description: 'Remote host to connect to. Can be: 1) Config name (e.g., "production"), 2) user@host format (e.g., "ubuntu@192.168.1.100"), 3) user@host:port (e.g., "root@server.com:2222"), or 4) just hostname/IP (uses default user)'
+            },
+            user: {
+              type: 'string',
+              description: 'SSH username (optional, overrides user in host string or uses current user as default)'
+            },
+            port: {
+              type: 'number',
+              description: 'SSH port (optional, default: 22)'
             },
             identity_file: {
               type: 'string',
-              description: 'SSH identity file path (optional, defaults to ~/.ssh/id_rsa)'
+              description: 'Path to SSH private key file (optional, defaults to ~/.ssh/id_rsa, ~/.ssh/id_ed25519, or ~/.ssh/id_ecdsa)'
+            },
+            password: {
+              type: 'string',
+              description: 'SSH password for password-based authentication (optional, less secure than key-based auth)'
             }
           },
           required: ['host']
@@ -172,7 +184,13 @@ export class RemoteCommandMCPServer {
   /**
    * Handle remote_connect tool
    */
-  private async handleConnect(args: { host: string; identity_file?: string }) {
+  private async handleConnect(args: {
+    host: string;
+    user?: string;
+    port?: number;
+    identity_file?: string;
+    password?: string;
+  }) {
     if (this.session.isConnected()) {
       return {
         content: [
@@ -186,12 +204,27 @@ export class RemoteCommandMCPServer {
     }
 
     try {
-      // Parse host (config name or user@host)
-      const sshOptions = config.parseHost(args.host);
+      // Try to parse as config name first, then as user@host format
+      let sshOptions = config.parseHost(args.host);
 
-      // Override identity file if provided
+      // Override with inline parameters if provided
+      if (args.user) {
+        sshOptions.username = args.user;
+      }
+
+      if (args.port) {
+        sshOptions.port = args.port;
+      }
+
       if (args.identity_file) {
         sshOptions.identityFile = args.identity_file;
+      }
+
+      if (args.password) {
+        // For password auth, we don't need identity file
+        sshOptions.identityFile = undefined;
+        // Add password to options (handled by session.connect)
+        (sshOptions as any).password = args.password;
       }
 
       // Connect
@@ -203,7 +236,7 @@ export class RemoteCommandMCPServer {
         content: [
           {
             type: 'text',
-            text: `Connected to ${status.user}@${status.remoteHost}\n\nSystem Info:\n${JSON.stringify(status.systemInfo, null, 2)}`
+            text: `Connected to ${status.user}@${status.remoteHost}:${sshOptions.port || 22}\n\nSystem Info:\n${JSON.stringify(status.systemInfo, null, 2)}`
           }
         ]
       };

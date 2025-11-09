@@ -2,18 +2,34 @@
 
 A Warp.dev warpify alternative that enables Claude Code to seamlessly execute commands on remote hosts as if they were local.
 
+## 🚀 Key Feature: Ad-Hoc Connections
+
+**Connect to ANY remote host on-the-fly without pre-configuration!**
+
+Simply tell Claude Code:
+- "Connect to ubuntu@192.168.1.100"
+- "Connect to root@server.com on port 2222"
+- "Connect to deploy@staging.example.com using key ~/.ssh/staging_key"
+
+No need to edit config files or leave the conversation. Switch between servers seamlessly!
+
+📖 See [AD_HOC_CONNECTIONS.md](./AD_HOC_CONNECTIONS.md) for detailed examples.
+
 ## Overview
 
 This project provides an MCP (Model Context Protocol) server that integrates with Claude Code, allowing AI agents to work on remote machines transparently. It uses SSH and tmux control mode to execute commands remotely while providing a local-like experience.
 
 ## Features
 
-- **Transparent Remote Execution**: Claude Code doesn't know it's executing remotely
-- **Streaming Output**: Real-time command output streaming
-- **Command Queuing**: Proper handling of sequential and parallel commands
-- **Session Management**: Connect, disconnect, and manage remote sessions
-- **Tmux Control Mode**: Clean, parseable output using tmux `-CC` flag
-- **Multi-host Support**: Configure and switch between multiple remote hosts
+- **🎯 Ad-Hoc Connections**: Connect to any server instantly without pre-configuration
+- **🔄 Transparent Remote Execution**: Claude Code doesn't know it's executing remotely
+- **📡 Streaming Output**: Real-time command output streaming
+- **📋 Command Queuing**: Proper handling of sequential and parallel commands
+- **🔌 Session Management**: Connect, disconnect, and manage remote sessions within chat
+- **⚡ Tmux Control Mode**: Clean, parseable output using tmux `-CC` flag
+- **🖥️ Multi-host Support**: Switch between multiple remote hosts seamlessly
+- **🔐 Flexible Auth**: Supports SSH keys (auto-detected) and password authentication
+- **⚙️ Optional Config**: Pre-configure frequently used hosts for convenience
 
 ## How It Works
 
@@ -36,9 +52,11 @@ npm install
 npm run build
 ```
 
-## Configuration
+## Configuration (Optional)
 
-Create `config/remotes.json`:
+Configuration is **completely optional**. You can connect to any server on-the-fly without any config file.
+
+However, for frequently used servers, you can create `config/remotes.json` for convenience:
 
 ```json
 {
@@ -62,6 +80,8 @@ Create `config/remotes.json`:
 }
 ```
 
+Then you can use short names: `"Connect to production"` instead of typing full host details.
+
 ## Claude Code Integration
 
 Add to your Claude Code MCP settings (`.claude/settings.json` or global settings):
@@ -79,29 +99,42 @@ Add to your Claude Code MCP settings (`.claude/settings.json` or global settings
 
 ## Usage
 
-### Connect to Remote Host
+### Connect to Any Remote Host (Ad-Hoc)
 
-Ask Claude Code:
+**No configuration needed!** Just tell Claude Code:
+
 ```
-Connect to my production server
+Connect to ubuntu@192.168.1.100
 ```
 
-Claude Code will call:
-```javascript
-remote_connect({ host: "production" })
+Or with custom port:
+```
+Connect to root@server.example.com on port 2222
+```
+
+Or with specific SSH key:
+```
+Connect to deploy@staging.com using key ~/.ssh/staging_key
+```
+
+See [AD_HOC_CONNECTIONS.md](./AD_HOC_CONNECTIONS.md) for 20+ more examples.
+
+### Connect Using Pre-Configured Host
+
+If you have hosts in `config/remotes.json`:
+
+```
+Connect to production
 ```
 
 ### Execute Commands
 
-Ask Claude Code:
+Once connected, ask Claude Code:
 ```
 Check what Docker containers are running
 ```
 
-Claude Code will call:
-```javascript
-remote_bash({ command: "docker ps -a" })
-```
+Claude Code will automatically execute the appropriate commands on the remote host.
 
 ### Multi-Command Operations
 
@@ -129,17 +162,37 @@ Disconnect from the remote server
 
 ### `remote_connect`
 
-Connects to a configured remote host.
+Connects to any remote host. Supports both ad-hoc connections and pre-configured hosts.
 
 **Parameters:**
-- `host` (string): Remote host identifier from config or `user@host` format
-- `identity_file` (string, optional): SSH key path
+- `host` (string, required): Config name, `user@host`, `user@host:port`, or just hostname
+- `user` (string, optional): SSH username (overrides user in host string)
+- `port` (number, optional): SSH port (default: 22)
+- `identity_file` (string, optional): Path to SSH private key (auto-detects if not specified)
+- `password` (string, optional): Password for authentication (less secure)
 
-**Example:**
+**Examples:**
+
+Ad-hoc connection:
 ```javascript
 {
-  "host": "production",
-  "identity_file": "~/.ssh/id_rsa"
+  "host": "ubuntu@192.168.1.100",
+  "port": 2222,
+  "identity_file": "~/.ssh/mykey"
+}
+```
+
+Pre-configured host:
+```javascript
+{
+  "host": "production"
+}
+```
+
+Simple connection (auto-detects key):
+```javascript
+{
+  "host": "root@server.com"
 }
 ```
 
