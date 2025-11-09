@@ -21,7 +21,8 @@
     "url": "git+https://github.com/analoguezone/remote-command.git"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run copy-bootstrap",
+    "copy-bootstrap": "mkdir -p dist/bootstrap && cp src/bootstrap/*.sh dist/bootstrap/",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build",
