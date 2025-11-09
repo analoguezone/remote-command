@@ -1,12 +1,12 @@
 # Remote Command MCP Server
 
-A Warp.dev warpify alternative that enables Claude Code to seamlessly execute commands on remote hosts as if they were local.
+A Warp.dev warpify alternative that enables OpenCode to seamlessly execute commands on remote hosts as if they were local.
 
 ## 🚀 Key Feature: Ad-Hoc Connections
 
 **Connect to ANY remote host on-the-fly without pre-configuration!**
 
-Simply tell Claude Code:
+Simply tell OpenCode:
 - "Connect to ubuntu@192.168.1.100"
 - "Connect to root@server.com on port 2222"
 - "Connect to deploy@staging.example.com using key ~/.ssh/staging_key"
@@ -17,12 +17,12 @@ No need to edit config files or leave the conversation. Switch between servers s
 
 ## Overview
 
-This project provides an MCP (Model Context Protocol) server that integrates with Claude Code, allowing AI agents to work on remote machines transparently. It uses SSH and tmux control mode to execute commands remotely while providing a local-like experience.
+This project provides an MCP (Model Context Protocol) server that integrates with OpenCode (and other MCP-compatible AI coding assistants), allowing AI agents to work on remote machines transparently. It uses SSH and tmux control mode to execute commands remotely while providing a local-like experience.
 
 ## Features
 
 - **🎯 Ad-Hoc Connections**: Connect to any server instantly without pre-configuration
-- **🔄 Transparent Remote Execution**: Claude Code doesn't know it's executing remotely
+- **🔄 Transparent Remote Execution**: OpenCode doesn't know it's executing remotely
 - **📡 Streaming Output**: Real-time command output streaming
 - **📋 Command Queuing**: Proper handling of sequential and parallel commands
 - **🔌 Session Management**: Connect, disconnect, and manage remote sessions within chat
@@ -34,16 +34,16 @@ This project provides an MCP (Model Context Protocol) server that integrates wit
 ## How It Works
 
 ```
-Claude Code → MCP Server → SSH + Tmux Control Mode → Remote Host
-     ↑                                                      ↓
-     └──────────── Streaming Output ───────────────────────┘
+OpenCode → MCP Server → SSH + Tmux Control Mode → Remote Host
+    ↑                                                      ↓
+    └──────────── Streaming Output ───────────────────────┘
 ```
 
-1. Claude Code connects to the MCP server via stdio
+1. OpenCode connects to the MCP server via stdio
 2. MCP server establishes SSH connection with tmux control mode
 3. Commands are executed on remote host
-4. Output is streamed back to Claude Code in real-time
-5. Claude Code processes output as if it were local
+4. Output is streamed back to OpenCode in real-time
+5. OpenCode processes output as if it were local
 
 ## Installation
 
@@ -82,26 +82,41 @@ However, for frequently used servers, you can create `config/remotes.json` for c
 
 Then you can use short names: `"Connect to production"` instead of typing full host details.
 
-## Claude Code Integration
+## OpenCode Integration
 
-Add to your Claude Code MCP settings (`.claude/settings.json` or global settings):
+Add to your `opencode.jsonc` configuration file:
 
-```json
+```jsonc
 {
-  "mcpServers": {
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
     "remote-command": {
-      "command": "node",
-      "args": ["/absolute/path/to/remote-command/dist/index.js"]
+      "type": "local",
+      "command": ["node", "/absolute/path/to/remote-command/dist/index.js"],
+      "enabled": true,
+      "environment": {
+        "LOG_LEVEL": "INFO"
+      },
+      "timeout": 10000
     }
   }
 }
+```
+
+**Important:** Replace `/absolute/path/to/remote-command` with the actual absolute path where you cloned this repository.
+
+To find the absolute path:
+```bash
+cd /path/to/remote-command
+pwd
+# Use the output in your opencode.jsonc
 ```
 
 ## Usage
 
 ### Connect to Any Remote Host (Ad-Hoc)
 
-**No configuration needed!** Just tell Claude Code:
+**No configuration needed!** Just tell OpenCode:
 
 ```
 Connect to ubuntu@192.168.1.100
@@ -129,22 +144,22 @@ Connect to production
 
 ### Execute Commands
 
-Once connected, ask Claude Code:
+Once connected, ask OpenCode:
 ```
 Check what Docker containers are running
 ```
 
-Claude Code will automatically execute the appropriate commands on the remote host.
+OpenCode will automatically execute the appropriate commands on the remote host.
 
 ### Multi-Command Operations
 
-Ask Claude Code:
+Ask OpenCode:
 ```
 Check Docker networking issues - look at container networks,
 check iptables rules, and verify DNS resolution
 ```
 
-Claude Code will automatically:
+OpenCode will automatically:
 1. Execute `docker network ls`
 2. Execute `docker network inspect bridge`
 3. Execute `sudo iptables -L`
@@ -153,7 +168,7 @@ Claude Code will automatically:
 
 ### Disconnect
 
-Ask Claude Code:
+Ask OpenCode:
 ```
 Disconnect from the remote server
 ```
@@ -314,11 +329,13 @@ If commands hang:
 2. Verify command works when run manually via SSH
 3. Check tmux session: `tmux -Lremote-cmd list-sessions`
 
-### Claude Code Doesn't See Tools
+### OpenCode Doesn't See Tools
 
-1. Verify MCP server is configured in Claude Code settings
-2. Restart Claude Code after adding MCP server
-3. Check server logs for errors
+1. Verify MCP server is configured in `opencode.jsonc`
+2. Check that `"enabled": true` is set
+3. Restart OpenCode after adding/modifying MCP server config
+4. Check server logs for errors (set `LOG_LEVEL: "DEBUG"` in environment)
+5. Test the server manually: `node /path/to/remote-command/dist/index.js`
 
 ## Comparison with Other Solutions
 
@@ -342,7 +359,7 @@ If commands hang:
 - [ ] Multi-host session management
 - [ ] Bootstrap script for automatic tmux installation
 - [ ] Escape sequence passthrough
-- [ ] Connection persistence across Claude Code restarts
+- [ ] Connection persistence across OpenCode restarts
 
 ## Contributing
 
@@ -354,4 +371,4 @@ MIT
 
 ## Credits
 
-Inspired by Warp.dev's warpify feature. This is an independent implementation designed for Claude Code integration.
+Inspired by Warp.dev's warpify feature. This is an independent implementation designed for OpenCode and other MCP-compatible AI coding assistants.

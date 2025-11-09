@@ -5,9 +5,9 @@ Get up and running with Remote Command MCP Server in 5 minutes.
 ## Prerequisites
 
 - Node.js >= 18
-- Claude Code installed
+- OpenCode installed
 - SSH access to a remote server with key authentication
-- Tmux >= 2.9 on remote server
+- Tmux >= 2.9 on remote server (will be checked automatically)
 
 ## 5-Minute Setup
 
@@ -42,7 +42,7 @@ But if you want, create `config/remotes.json` for frequently used servers:
 }
 ```
 
-### 4. Add to Claude Code
+### 4. Add to OpenCode
 
 Get the absolute path:
 
@@ -51,22 +51,26 @@ pwd
 # Copy this path
 ```
 
-Add to Claude Code settings (`~/.config/claude-code/settings.json`):
+Add to your `opencode.jsonc` configuration file:
 
-```json
+```jsonc
 {
-  "mcpServers": {
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
     "remote-command": {
-      "command": "node",
-      "args": ["/absolute/path/from/pwd/dist/index.js"]
+      "type": "local",
+      "command": ["node", "/absolute/path/from/pwd/dist/index.js"],
+      "enabled": true
     }
   }
 }
 ```
 
-### 5. Restart Claude Code & Test
+Replace `/absolute/path/from/pwd` with the actual path from the `pwd` command above.
 
-Restart Claude Code, then try connecting to any server:
+### 5. Restart OpenCode & Test
+
+Restart OpenCode, then try connecting to any server:
 
 **Option 1: Ad-hoc connection** (no config needed)
 ```
@@ -85,7 +89,7 @@ Run 'uname -a' to show system info
 
 ## What You Can Do
 
-Once connected, ask Claude Code to:
+Once connected, ask OpenCode to:
 
 - **Check system resources:** "What's the CPU and memory usage?"
 - **Investigate issues:** "Check why Docker container X keeps restarting"
@@ -93,7 +97,7 @@ Once connected, ask Claude Code to:
 - **View logs:** "Show me the last 50 lines of /var/log/nginx/error.log"
 - **Debug networking:** "Check if port 8080 is listening and what process is using it"
 
-Claude Code will automatically:
+OpenCode will automatically:
 1. Execute appropriate commands
 2. Stream output in real-time
 3. Analyze results
@@ -105,7 +109,7 @@ Claude Code will automatically:
 
 **You:** "My Node.js app on port 3000 isn't responding. Help me debug it."
 
-**Claude Code will:**
+**OpenCode will:**
 1. Check if process is running: `ps aux | grep node`
 2. Check port: `netstat -tlnp | grep 3000`
 3. Check logs: `journalctl -u myapp -n 50`
@@ -116,7 +120,7 @@ Claude Code will automatically:
 
 **You:** "Deploy the latest changes from the main branch"
 
-**Claude Code will:**
+**OpenCode will:**
 1. Navigate to project: `cd /var/www/myapp`
 2. Pull changes: `git pull origin main`
 3. Install deps: `npm install`
@@ -127,7 +131,7 @@ Claude Code will automatically:
 
 **You:** "Give me a system health check"
 
-**Claude Code will:**
+**OpenCode will:**
 1. Check disk: `df -h`
 2. Check memory: `free -h`
 3. Check CPU: `uptime`
@@ -161,28 +165,34 @@ ssh ubuntu@your-server.com "tmux -V"
 
 ### MCP not showing up?
 
-1. Check absolute path is correct
-2. Verify build: `ls dist/index.js`
-3. Restart Claude Code completely
+1. Check absolute path is correct in `opencode.jsonc`
+2. Verify `"enabled": true` is set
+3. Verify build: `ls dist/index.js`
+4. Check `opencode.jsonc` JSON syntax is valid
+5. Restart OpenCode completely
 
 ### Commands timing out?
 
-Increase timeout in tool call or check remote host performance.
+1. Increase timeout in `opencode.jsonc`: `"timeout": 30000` (30 seconds)
+2. Check remote host performance
+3. Enable debug logging: `"LOG_LEVEL": "DEBUG"` in environment
 
 ## Next Steps
 
 - Read [SETUP.md](./SETUP.md) for detailed configuration
 - Read [ARCHITECTURE.md](./ARCHITECTURE.md) for technical details
-- Configure multiple remotes
-- Set up path mappings for your projects
+- Read [AD_HOC_CONNECTIONS.md](./AD_HOC_CONNECTIONS.md) for connection examples
+- Configure multiple remotes (optional)
+- Set up path mappings for your projects (optional)
 
 ## Tips
 
 1. **Stay Connected:** Keep connection open for faster command execution
-2. **Use Config Names:** "Connect to production" instead of "Connect to user@host"
-3. **Let Claude Decide:** Just describe the problem, let Claude figure out the commands
-4. **Multiple Commands:** Claude will automatically sequence related commands
+2. **Use Config Names:** "Connect to production" instead of typing full host details
+3. **Let OpenCode Decide:** Just describe the problem, let OpenCode figure out the commands
+4. **Multiple Commands:** OpenCode will automatically sequence related commands
+5. **No Config Required:** You can connect to any server without pre-configuration
 
 ---
 
-**That's it!** You're now set up to use Claude Code seamlessly with remote servers.
+**That's it!** You're now set up to use OpenCode seamlessly with remote servers.
