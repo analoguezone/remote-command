@@ -33,6 +33,7 @@ export class RemoteSession extends EventEmitter {
   private connectedAt?: Date;
   private commandsExecuted: number = 0;
   private timeoutCheckInterval?: NodeJS.Timeout;
+  private tmuxPaneId: string | null = null;
 
   constructor() {
     super();
@@ -367,10 +368,29 @@ fi;
         // Start tmux in control mode
         stream.write('tmux -Lremote-cmd -CC\n');
 
-        // Wait a bit for tmux to start
+        // Wait for tmux to start, then create a persistent shell window
         setTimeout(() => {
-          logger.info('Tmux control mode started');
-          resolve();
+          logger.info('Tmux control mode started, creating shell window...');
+
+          // Create a window with a bash shell and capture the pane ID
+          stream.write('new-window -P -F "#{pane_id}" bash\n');
+
+          // Set up a one-time listener to capture the pane ID
+          const paneIdListener = (data: Buffer) => {
+            const output = data.toString();
+            const match = output.match(/%(\d+)/);
+            if (match) {
+              this.tmuxPaneId = match[0];
+              logger.info(`Created tmux pane: ${this.tmuxPaneId}`);
+            }
+          };
+
+          stream.once('data', paneIdListener);
+
+          setTimeout(() => {
+            logger.info('Tmux setup complete');
+            resolve();
+          }, 500);
         }, 500);
       });
     });
@@ -410,10 +430,17 @@ fi;
       return;
     }
 
-    // Send command to tmux
-    const tmuxCmd = TmuxControlCommands.sendKeys('%0', command.command);
-    logger.debug(`Sending to tmux: ${tmuxCmd}`);
-    this.tmuxStream.write(tmuxCmd + '\n');
+    if (!this.tmuxPaneId) {
+      this.commandQueue.fail(new RemoteCommandError('Tmux pane not initialized', 'NO_TMUX_PANE'));
+      return;
+    }
+
+    // Send command to the persistent bash pane
+    // Escape the command properly for send-keys
+    const escapedCmd = command.command.replace(/"/g, '\\"');
+    const tmuxCmd = `send-keys -t ${this.tmuxPaneId} "${escapedCmd}" Enter\n`;
+    logger.debug(`Sending to tmux pane ${this.tmuxPaneId}: ${command.command}`);
+    this.tmuxStream.write(tmuxCmd);
   }
 
   /**
