@@ -1,7 +1,7 @@
 {
   "name": "@analoguezone/remote-command-mcp",
-  "version": "1.2.0-pty",
-  "description": "MCP server for executing commands on remote hosts seamlessly with OpenCode and other AI coding assistants",
+  "version": "1.0.0",
+  "description": "MCP server for executing commands on remote hosts via SSH - seamlessly integrate with OpenCode and other AI coding assistants",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -9,9 +9,9 @@
   },
   "files": [
     "dist/**/*",
-    "src/bootstrap/**/*",
     "config/remotes.example.json",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"
@@ -21,8 +21,7 @@
     "url": "git+https://github.com/analoguezone/remote-command.git"
   },
   "scripts": {
-    "build": "tsc && npm run copy-bootstrap && npm run copy-package",
-    "copy-bootstrap": "mkdir -p dist/bootstrap && cp src/bootstrap/*.sh dist/bootstrap/",
+    "build": "tsc && npm run copy-package",
     "copy-package": "cp package.json dist/package.json",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
@@ -38,11 +37,10 @@
     "claude-code",
     "remote",
     "ssh",
-    "tmux",
+    "remote-execution",
     "command-execution",
-    "warp",
-    "warpify",
-    "ai-coding-assistant"
+    "ai-coding-assistant",
+    "remote-development"
   ],
   "author": "analoguezone",
   "license": "MIT",

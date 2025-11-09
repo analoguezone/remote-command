@@ -32,9 +32,9 @@ npm pack --dry-run
 
 Should include:
 - `dist/**/*` - Compiled JavaScript
-- `src/bootstrap/**/*` - Bootstrap scripts
 - `config/remotes.example.json` - Example config
 - `README.md` - Documentation
+- `LICENSE` - MIT License
 
 ### 4. Publish to NPM
 

@@ -1,92 +1,39 @@
 # Remote Command MCP Server
 
-A Warp.dev warpify alternative that enables OpenCode to seamlessly execute commands on remote hosts as if they were local.
+**Execute commands on remote hosts seamlessly with AI coding assistants**
 
-## 🚀 Key Feature: Ad-Hoc Connections
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that enables AI assistants like [Claude Code](https://claude.ai/code) to execute commands on remote hosts via SSH - as if they were running locally.
 
-**Connect to ANY remote host on-the-fly without pre-configuration!**
-
-Simply tell OpenCode:
-- "Connect to ubuntu@192.168.1.100"
-- "Connect to root@server.com on port 2222"
-- "Connect to deploy@staging.example.com using key ~/.ssh/staging_key"
-
-No need to edit config files or leave the conversation. Switch between servers seamlessly!
-
-📖 See [AD_HOC_CONNECTIONS.md](./AD_HOC_CONNECTIONS.md) for detailed examples.
-
-## Overview
-
-This project provides an MCP (Model Context Protocol) server that integrates with OpenCode (and other MCP-compatible AI coding assistants), allowing AI agents to work on remote machines transparently. It uses SSH and tmux control mode to execute commands remotely while providing a local-like experience.
+[![npm version](https://badge.fury.io/js/%40analoguezone%2Fremote-command-mcp.svg)](https://www.npmjs.com/package/@analoguezone/remote-command-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
 
-- **🎯 Ad-Hoc Connections**: Connect to any server instantly without pre-configuration
-- **🔄 Transparent Remote Execution**: OpenCode doesn't know it's executing remotely
-- **📡 Streaming Output**: Real-time command output streaming
-- **📋 Command Queuing**: Proper handling of sequential and parallel commands
-- **🔌 Session Management**: Connect, disconnect, and manage remote sessions within chat
-- **⚡ Tmux Control Mode**: Clean, parseable output using tmux `-CC` flag
-- **🖥️ Multi-host Support**: Switch between multiple remote hosts seamlessly
-- **🔐 Flexible Auth**: Supports SSH keys (auto-detected) and password authentication
-- **⚙️ Optional Config**: Pre-configure frequently used hosts for convenience
+- **🎯 Ad-Hoc Connections** - Connect to any server instantly without pre-configuration
+- **🔄 Transparent Execution** - AI assistants execute commands as if running locally
+- **🔒 Built-in Safety** - Approval system for dangerous commands (system changes, package installs, etc.)
+- **📡 Real-time Streaming** - Live command output via SSH PTY
+- **🖥️ Multi-Host Support** - Switch between multiple remote hosts in one conversation
+- **🔐 Flexible Authentication** - SSH keys (auto-detected), passwords, or custom key files
+- **⚙️ Optional Configuration** - Pre-configure frequently used hosts for convenience
 
-## How It Works
+## Quick Start
 
-```
-OpenCode → MCP Server → SSH + Tmux Control Mode → Remote Host
-    ↑                                                      ↓
-    └──────────── Streaming Output ───────────────────────┘
-```
-
-1. OpenCode connects to the MCP server via stdio
-2. MCP server establishes SSH connection with tmux control mode
-3. Commands are executed on remote host
-4. Output is streamed back to OpenCode in real-time
-5. OpenCode processes output as if it were local
-
-## Installation
+### Installation
 
 ```bash
-npm install
-npm run build
+npm install -g @analoguezone/remote-command-mcp
 ```
 
-## Configuration (Optional)
+Or use directly with `npx` (no installation needed):
 
-Configuration is **completely optional**. You can connect to any server on-the-fly without any config file.
-
-However, for frequently used servers, you can create `config/remotes.json` for convenience:
-
-```json
-{
-  "version": "1.0",
-  "remotes": {
-    "production": {
-      "host": "prod.example.com",
-      "user": "ubuntu",
-      "identityFile": "~/.ssh/id_rsa",
-      "port": 22,
-      "pathMappings": {
-        "/home/user/project": "/home/ubuntu/app"
-      }
-    },
-    "staging": {
-      "host": "staging.example.com",
-      "user": "deploy",
-      "identityFile": "~/.ssh/id_rsa"
-    }
-  }
-}
+```bash
+npx @analoguezone/remote-command-mcp
 ```
 
-Then you can use short names: `"Connect to production"` instead of typing full host details.
+### Claude Code / OpenCode Integration
 
-## OpenCode Integration
-
-### Option 1: NPM Package (Recommended - Once Published)
-
-If the package is published to npm, you can use:
+Add to your `opencode.json` or Claude Code configuration:
 
 ```json
 {
@@ -97,200 +44,260 @@ If the package is published to npm, you can use:
       "command": ["npx", "-y", "@analoguezone/remote-command-mcp"],
       "enabled": true,
       "environment": {
-        "LOG_LEVEL": "INFO"
-      },
-      "timeout": 10000
+        "SAFETY_MODE": "interactive",
+        "LOG_LEVEL": "INFO",
+        "LOG_FILE": "/tmp/remote-command-mcp.log"
+      }
     }
   }
 }
 ```
 
-**Note:** This will automatically download and run the latest version from npm.
-
-### Option 2: Local Development
-
-For local development or if not published to npm yet:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "remote-command": {
-      "type": "local",
-      "command": ["node", "/absolute/path/to/remote-command/dist/index.js"],
-      "enabled": true,
-      "environment": {
-        "LOG_LEVEL": "INFO"
-      },
-      "timeout": 10000
-    }
-  }
-}
-```
-
-**Important:** Replace `/absolute/path/to/remote-command` with the actual absolute path where you cloned this repository.
-
-To find the absolute path:
-```bash
-cd /path/to/remote-command
-pwd
-# Use the output in your opencode.json
-```
+Restart your AI assistant, and you're ready to go!
 
 ## Usage
 
-### Connect to Any Remote Host (Ad-Hoc)
+### Connect to Any Remote Host
 
-**No configuration needed!** Just tell OpenCode:
+No configuration needed - just tell your AI assistant:
 
 ```
 Connect to ubuntu@192.168.1.100
 ```
 
-Or with custom port:
+With custom port:
 ```
 Connect to root@server.example.com on port 2222
 ```
 
-Or with specific SSH key:
+With specific SSH key:
 ```
 Connect to deploy@staging.com using key ~/.ssh/staging_key
 ```
 
-See [AD_HOC_CONNECTIONS.md](./AD_HOC_CONNECTIONS.md) for 20+ more examples.
-
-### Connect Using Pre-Configured Host
-
-If you have hosts in `config/remotes.json`:
-
-```
-Connect to production
-```
-
 ### Execute Commands
 
-Once connected, ask OpenCode:
+Once connected, simply ask your AI:
+
 ```
 Check what Docker containers are running
+List the 10 largest files in /var/log
+Show me the last 50 lines of nginx error log
 ```
 
-OpenCode will automatically execute the appropriate commands on the remote host.
+Your AI assistant will automatically execute appropriate commands and show results.
 
-### Multi-Command Operations
+### Safety System
 
-Ask OpenCode:
+Dangerous commands require explicit approval:
+
 ```
-Check Docker networking issues - look at container networks,
-check iptables rules, and verify DNS resolution
+User: "Restart nginx"
+AI: ⚠️  DANGEROUS COMMAND - Approval Required
+    Command: systemctl restart nginx
+    Challenge Code: XY7Z9K
+
+User: "Execute with challenge code: XY7Z9K"
+AI: ✅ Command approved and executed
 ```
 
-OpenCode will automatically:
-1. Execute `docker network ls`
-2. Execute `docker network inspect bridge`
-3. Execute `sudo iptables -L`
-4. Execute `docker exec <container> nslookup google.com`
-5. Stream all outputs back in real-time
+See [SAFETY_SYSTEM.md](./SAFETY_SYSTEM.md) for details.
 
-### Disconnect
+## Configuration (Optional)
 
-Ask OpenCode:
+For frequently used servers, create `config/remotes.json`:
+
+```json
+{
+  "version": "1.0",
+  "remotes": {
+    "production": {
+      "host": "prod.example.com",
+      "user": "ubuntu",
+      "identityFile": "~/.ssh/prod_key",
+      "port": 22
+    },
+    "staging": {
+      "host": "staging.example.com",
+      "user": "deploy",
+      "identityFile": "~/.ssh/staging_key"
+    }
+  }
+}
 ```
-Disconnect from the remote server
+
+Then use short names:
+```
+Connect to production
 ```
 
 ## MCP Tools
 
 ### `remote_connect`
 
-Connects to any remote host. Supports both ad-hoc connections and pre-configured hosts.
+Connect to a remote host via SSH.
 
 **Parameters:**
-- `host` (string, required): Config name, `user@host`, `user@host:port`, or just hostname
-- `user` (string, optional): SSH username (overrides user in host string)
-- `port` (number, optional): SSH port (default: 22)
-- `identity_file` (string, optional): Path to SSH private key (auto-detects if not specified)
-- `password` (string, optional): Password for authentication (less secure)
-
-**Examples:**
-
-Ad-hoc connection:
-```javascript
-{
-  "host": "ubuntu@192.168.1.100",
-  "port": 2222,
-  "identity_file": "~/.ssh/mykey"
-}
-```
-
-Pre-configured host:
-```javascript
-{
-  "host": "production"
-}
-```
-
-Simple connection (auto-detects key):
-```javascript
-{
-  "host": "root@server.com"
-}
-```
+- `host` (string, required) - Config name or `user@host[:port]`
+- `user` (string, optional) - SSH username
+- `port` (number, optional) - SSH port (default: 22)
+- `identity_file` (string, optional) - Path to SSH private key
+- `password` (string, optional) - Password authentication
 
 ### `remote_bash`
 
-Executes bash commands on the connected remote host.
+Execute a bash command on the connected remote host.
 
 **Parameters:**
-- `command` (string): The bash command to execute
-- `timeout` (number, optional): Timeout in milliseconds (default: 120000)
-- `cwd` (string, optional): Working directory
+- `command` (string, required) - The bash command to execute
+- `timeout` (number, optional) - Timeout in ms (default: 120000)
+- `cwd` (string, optional) - Working directory
 
-**Example:**
-```javascript
-{
-  "command": "ls -la /var/log",
-  "timeout": 60000,
-  "cwd": "/home/ubuntu"
-}
-```
+### `remote_approve`
+
+Approve a pending dangerous command execution.
+
+**Parameters:**
+- `approval_id` (string, required) - Approval ID from pending command
+- `challenge` (string, required) - Challenge code to verify human approval
 
 ### `remote_disconnect`
 
-Disconnects from the current remote host.
+Disconnect from the current remote host.
 
 ### `remote_status`
 
-Returns current connection status and system information.
+Get current connection status and system information.
 
-**Returns:**
+## Safety Modes
+
+Configure via `SAFETY_MODE` environment variable:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `interactive` (default) | Dangerous commands require approval | Development, debugging |
+| `read-only` | Only read commands allowed | Production monitoring |
+| `unrestricted` | No restrictions (⚠️ use with caution) | Isolated test environments |
+
+## Requirements
+
+- Node.js >= 18.0.0
+- SSH access to remote hosts
+- SSH keys or password for authentication
+
+**Remote hosts:**
+- Any Linux/Unix system with SSH access
+- No additional software installation required on remote hosts
+
+## How It Works
+
+```
+AI Assistant → MCP Protocol → SSH Connection → Remote Host
+      ↑                                              ↓
+      └────────── Streaming Output ─────────────────┘
+```
+
+1. AI assistant connects to MCP server via stdio
+2. MCP server establishes SSH connection with PTY
+3. Commands execute on remote host with real-time streaming
+4. Output returns to AI assistant as if running locally
+
+## Examples
+
+### System Administration
+
+```
+User: "Check if nginx is running and view its configuration"
+AI executes:
+  - systemctl status nginx
+  - nginx -t
+  - cat /etc/nginx/nginx.conf
+```
+
+### Docker Diagnostics
+
+```
+User: "Diagnose why the web container can't reach the database"
+AI executes:
+  - docker ps
+  - docker network ls
+  - docker logs web-container
+  - docker exec web-container ping db-container
+```
+
+### Log Analysis
+
+```
+User: "Find all 500 errors in the last hour"
+AI executes:
+  - find /var/log/nginx -name "*.log" -mmin -60
+  - grep "HTTP/1.1\" 500" /var/log/nginx/error.log
+```
+
+## Troubleshooting
+
+### Connection Issues
+
+```bash
+# Test SSH manually
+ssh -i ~/.ssh/id_rsa user@host
+
+# Check key permissions
+chmod 600 ~/.ssh/id_rsa
+```
+
+### Enable Debug Logging
+
 ```json
-{
-  "connected": true,
-  "host": "production",
-  "remote_host": "prod.example.com",
-  "user": "ubuntu",
-  "system_info": {
-    "os": "Linux",
-    "pkg": "apt",
-    "shell": "bash",
-    "root_access": "can_run_sudo",
-    "writable_home": true
-  }
+"environment": {
+  "LOG_LEVEL": "DEBUG",
+  "LOG_FILE": "/tmp/remote-command-mcp.log"
 }
 ```
 
+Then check logs:
+```bash
+tail -f /tmp/remote-command-mcp.log
+```
+
+### AI Doesn't See Tools
+
+1. Verify `"enabled": true` in MCP config
+2. Restart AI assistant after config changes
+3. Check server starts without errors:
+   ```bash
+   npx @analoguezone/remote-command-mcp
+   ```
+
 ## Architecture
+
+This MCP server uses:
+- **ssh2** library for SSH connections
+- **PTY (Pseudo-Terminal)** for clean command execution
+- **EventEmitter** for session lifecycle management
+- **Pattern-based** command safety classification
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed architecture documentation.
 
-See [IMPLEMENTATION_STRATEGY.md](./IMPLEMENTATION_STRATEGY.md) for implementation details.
-
 ## Development
 
-### Build
+### Local Setup
 
 ```bash
+git clone https://github.com/analoguezone/remote-command.git
+cd remote-command
+npm install
 npm run build
+```
+
+### Use Local Version
+
+In your MCP config:
+
+```json
+{
+  "command": ["node", "/absolute/path/to/remote-command/dist/index.js"]
+}
 ```
 
 ### Watch Mode
@@ -299,101 +306,42 @@ npm run build
 npm run dev
 ```
 
-### Testing
+## Comparison with Alternatives
 
-```bash
-npm test
-```
-
-## How Tmux Control Mode Works
-
-Tmux control mode (`-CC`) provides structured, parseable output instead of terminal rendering:
-
-```
-%begin 1699564800 0 0
-ls: total 48
-drwxr-xr-x 2 user user 4096 Nov  9 10:00 src
-%end 1699564800 0 0 0
-```
-
-We parse these control messages to:
-- Track command boundaries (`%begin` / `%end`)
-- Extract output streams
-- Capture exit codes
-- Handle multiple concurrent commands
-
-## Warp Warpify Analysis
-
-Warp uses:
-1. **Escape sequences** for bidirectional communication
-2. **Tmux control mode** for clean output parsing
-3. **System detection** for compatibility checking
-4. **Bootstrap scripts** for remote setup
-
-We implement similar functionality but integrate with Claude Code via MCP instead of Warp's proprietary protocol.
-
-## Troubleshooting
-
-### Connection Issues
-
-If connection fails:
-1. Check SSH key permissions: `chmod 600 ~/.ssh/id_rsa`
-2. Test SSH manually: `ssh -i ~/.ssh/id_rsa user@host`
-3. Check `config/remotes.json` syntax
-
-### Tmux Not Found
-
-The server will attempt to bootstrap tmux installation. If it fails:
-1. Manually install tmux: `sudo apt-get install tmux` (Ubuntu/Debian)
-2. Verify version: `tmux -V` (must be >= 2.9)
-
-### Commands Hang
-
-If commands hang:
-1. Check timeout settings (default: 2 minutes)
-2. Verify command works when run manually via SSH
-3. Check tmux session: `tmux -Lremote-cmd list-sessions`
-
-### OpenCode Doesn't See Tools
-
-1. Verify MCP server is configured in `opencode.json`
-2. Check that `"enabled": true` is set
-3. Restart OpenCode after adding/modifying MCP server config
-4. Check server logs for errors (set `"LOG_LEVEL": "DEBUG"` in environment)
-5. Test the server manually: `node /path/to/remote-command/dist/index.js`
-
-## Comparison with Other Solutions
-
-| Feature | This Project | Raw SSH | Warp Warpify | VS Code Remote |
-|---------|-------------|---------|--------------|----------------|
-| AI Agent Integration | ✅ Native (MCP) | ❌ | ✅ Proprietary | ❌ |
-| Streaming Output | ✅ Real-time | ❌ | ✅ | ✅ |
-| Command Queuing | ✅ | ❌ | ✅ | ❌ |
-| Session Persistence | ✅ (tmux) | ❌ | ✅ | ✅ |
-| Zero Terminal Emulation | ✅ | ❌ | ✅ | ❌ |
-| Open Source | ✅ | ✅ | ❌ | Partial |
-
-## Roadmap
-
-- [x] Basic SSH connection
-- [x] Tmux control mode parser
-- [x] MCP server implementation
-- [x] Command queueing
-- [ ] Path translation/mapping
-- [ ] File sync capabilities
-- [ ] Multi-host session management
-- [ ] Bootstrap script for automatic tmux installation
-- [ ] Escape sequence passthrough
-- [ ] Connection persistence across OpenCode restarts
+| Feature | remote-command-mcp | Raw SSH | VS Code Remote |
+|---------|-------------------|---------|----------------|
+| AI Integration | ✅ Native (MCP) | ❌ | ❌ |
+| Streaming Output | ✅ Real-time | ❌ | ✅ |
+| Command Safety | ✅ Built-in | ❌ | ❌ |
+| Zero Configuration | ✅ Ad-hoc connections | ❌ | ❌ |
+| Session Management | ✅ Per-conversation | ❌ | ✅ |
+| Open Source | ✅ MIT | ✅ | Partial |
 
 ## Contributing
 
-Contributions welcome! Please read the architecture and implementation strategy documents first.
+Contributions welcome! Please:
+
+1. Read [ARCHITECTURE.md](./ARCHITECTURE.md) and [IMPLEMENTATION_STRATEGY.md](./IMPLEMENTATION_STRATEGY.md)
+2. Open an issue to discuss significant changes
+3. Submit PRs with clear descriptions and tests
+
+## Documentation
+
+- [SAFETY_SYSTEM.md](./SAFETY_SYSTEM.md) - Command safety and approval workflow
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - Technical architecture details
+- [AD_HOC_CONNECTIONS.md](./AD_HOC_CONNECTIONS.md) - Connection examples
+- [IMPLEMENTATION_STRATEGY.md](./IMPLEMENTATION_STRATEGY.md) - Implementation details
 
 ## License
 
-MIT
+[MIT](./LICENSE)
 
 ## Credits
 
-Inspired by Warp.dev's warpify feature. This is an independent implementation designed for OpenCode and other MCP-compatible AI coding assistants.
+Created by [analoguezone](https://github.com/analoguezone)
+
+Inspired by the need for seamless remote command execution in AI-assisted development workflows.
+
+---
+
+**Note:** This is an independent open-source project and is not affiliated with Anthropic, Claude, or any other AI assistant platform.

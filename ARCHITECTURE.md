@@ -1,281 +1,138 @@
-# Remote Command Architecture
+# Remote Command MCP Server - Architecture
 
 ## Overview
 
-This project provides a Warp.dev warpify alternative that enables AI agents (like Claude Code) to seamlessly execute commands on remote hosts as if they were local.
+This MCP server enables AI assistants to execute commands on remote hosts via SSH, providing transparent remote execution as if commands were running locally.
 
-## Warp's Warpify Analysis
+## Design Goals
 
-### Key Components from Dumped Commands
+1. **Transparency** - AI assistants don't need to know they're executing remotely
+2. **Simplicity** - Direct SSH execution without complex middleware
+3. **Reliability** - Robust command execution with proper exit codes and streaming
+4. **Safety** - Built-in approval system for dangerous operations
+5. **Zero Dependencies** - No software installation required on remote hosts
 
-1. **Escape Sequence Communication**
-   - OSC (Operating System Command): `\e]9278;f;{...}\a` for hooks/events
-   - DCS (Device Control String): `\033\120\044\144%s\234` for logging
-   - Bidirectional communication between client and remote
-
-2. **Tmux Control Mode (`-CC`)**
-   - Provides parseable, structured output
-   - Outputs control messages: `%begin`, `%end`, `%output`, `%window-add`, etc.
-   - Eliminates need for screen scraping
-   - Example: `%begin 1730812345 0 1` followed by actual output, then `%end 1730812345 0 1`
-
-3. **System Detection**
-   ```bash
-   - OS detection (Darwin/Linux)
-   - Package manager (homebrew, pacman, zypper, dnf, yum, apt)
-   - Shell type (fish, zsh, bash)
-   - Root access level (no_root_access, can_run_sudo, is_root)
-   - Home directory writability
-   ```
-
-4. **Tmux Version Validation**
-   - Requires tmux >= 2.9
-   - Checks for Warp bundled tmux ($HOME/.warp/tmux/execute_tmux.sh)
-   - Falls back to system tmux
-
-## Proposed Architecture
-
-### Design Goals
-
-1. **Transparency**: Claude Code should not know it's executing remotely
-2. **Streaming**: Real-time output streaming for multi-command operations
-3. **Queuing**: Handle multiple concurrent commands properly
-4. **Error Handling**: Graceful degradation and clear error messages
-5. **Session Management**: Connect/disconnect/reconnect capabilities
-
-### Architecture Layers
+## Architecture Layers
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Claude Code CLI                         │
-│                    (Believes it's local)                     │
+│                  AI Assistant (Claude Code)                  │
+│                 (Believes it's local execution)              │
+└──────────────────────┬───────────────────────────────────────┘
+                       │ stdio/MCP Protocol
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    MCP Server                                │
+│  - Tool handlers (connect, bash, disconnect, status)        │
+│  - Command safety classification                            │
+│  - Approval workflow management                             │
 └──────────────────────┬───────────────────────────────────────┘
                        │
                        ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  Command Interceptor                         │
-│  - Intercepts bash/shell commands                           │
-│  - Routes to local or remote execution                       │
-│  - Mimics local command interface                            │
+│                  Remote Session                              │
+│  - SSH connection management (ssh2 library)                 │
+│  - PTY-based command execution                               │
+│  - Real-time output streaming                                │
+│  - Exit code handling                                        │
 └──────────────────────┬───────────────────────────────────────┘
-                       │
+                       │ SSH with PTY
                        ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   Command Router                             │
-│  - Determines execution target (local/remote)                │
-│  - Manages command queue                                     │
-│  - Handles parallel/sequential execution                     │
-└──────────────────────┬───────────────────────────────────────┘
-                       │
-         ┌─────────────┴──────────────┐
-         ▼                            ▼
-┌──────────────────┐        ┌──────────────────────────────────┐
-│ Local Executor   │        │     Remote Executor              │
-└──────────────────┘        │  - SSH tunnel manager            │
-                            │  - Tmux control mode interface    │
-                            │  - Output parser/streamer         │
-                            └──────────────────────────────────┘
+│                    Remote Host                               │
+│  - Any Linux/Unix system with SSH                           │
+│  - No additional software required                           │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Core Components
+## Core Components
 
-#### 1. Remote Session Manager
+### 1. MCP Server (`src/mcp/server.ts`)
+
+The MCP protocol layer that exposes tools to AI assistants.
+
+**Responsibilities:**
+- Register MCP tools (connect, bash, approve, disconnect, status)
+- Handle tool invocations from AI assistants
+- Classify commands for safety
+- Manage approval workflow
+- Format responses for AI consumption
+
+**Key Methods:**
 ```typescript
-class RemoteSession {
-  - connect(host, options): Promise<void>
-  - disconnect(): Promise<void>
-  - isConnected(): boolean
-  - execute(command, options): Promise<CommandResult>
-  - stream(command, callback): Promise<void>
+class RemoteCommandMCPServer {
+  private handleConnect(args): Promise<ToolResponse>
+  private handleBash(args): Promise<ToolResponse>
+  private handleApprove(args): Promise<ToolResponse>
+  private handleDisconnect(): Promise<ToolResponse>
+  private handleStatus(): Promise<ToolResponse>
 }
 ```
 
-#### 2. Tmux Control Mode Parser
+### 2. Remote Session (`src/remote/session.ts`)
+
+Manages SSH connection lifecycle and command execution.
+
+**Responsibilities:**
+- Establish SSH connections with key or password auth
+- Execute commands with PTY for proper terminal emulation
+- Stream stdout/stderr in real-time
+- Capture exit codes
+- Detect system characteristics (OS, package manager, etc.)
+
+**Key Methods:**
 ```typescript
-class TmuxControlParser {
-  - parseControlOutput(line): ControlMessage
-  - extractPanes(): Pane[]
-  - handleWindowEvents(event): void
-  - getCommandOutput(windowId): string
-}
-
-interface ControlMessage {
-  type: 'begin' | 'end' | 'output' | 'error' | 'window-add' | 'exit'
-  timestamp?: number
-  pane?: number
-  window?: number
-  data?: string
+class RemoteSession extends EventEmitter {
+  async connect(options: RemoteConnectionOptions): Promise<void>
+  async disconnect(): Promise<void>
+  async execute(command: string, options?: ExecOptions): Promise<CommandResult>
+  async detectSystemInfo(): Promise<SystemInfo>
 }
 ```
 
-#### 3. Command Queue Manager
+**Implementation Details:**
+- Uses `ssh2` library for SSH connections
+- PTY mode (`pty: true`) provides clean command execution
+- Event-driven architecture for connection lifecycle
+- Automatic system detection on connect
+
+### 3. Command Safety (`src/utils/command-safety.ts`)
+
+Classification and approval system for dangerous commands.
+
+**Responsibilities:**
+- Classify commands as safe, modify, or dangerous
+- Generate approval requests with challenge codes
+- Verify approvals before execution
+- Expire time-limited approvals (60 seconds)
+
+**Classification Levels:**
 ```typescript
-class CommandQueue {
-  - enqueue(command, priority): CommandHandle
-  - executeNext(): Promise<void>
-  - stream(command, onData): CommandHandle
-  - cancelAll(): void
-  - waitForCompletion(): Promise<void>
-}
+type CommandLevel = 'safe' | 'modify' | 'dangerous';
+
+// Safe: read-only commands (ls, cat, ps, df, etc.)
+// Modify: file operations (mkdir, cp, chmod, etc.)
+// Dangerous: system changes (apt install, systemctl restart, etc.)
 ```
 
-#### 4. SSH Tunnel Manager
-```typescript
-class SSHTunnel {
-  - establish(host, options): Promise<void>
-  - keepAlive(): void
-  - reconnect(): Promise<void>
-  - close(): void
-}
-```
+**Approval Flow:**
+1. Dangerous command detected
+2. Generate random challenge code
+3. Return approval request to AI
+4. User provides challenge code
+5. AI calls remote_approve tool
+6. Verify challenge and execute command
 
-## Implementation Strategy
+### 4. Configuration (`src/utils/config.ts`)
 
-### Phase 1: Core Infrastructure (MVP)
-1. SSH connection management
-2. Tmux control mode integration
-3. Basic command execution
-4. Output streaming
+Optional configuration for frequently used hosts.
 
-### Phase 2: Claude Code Integration
-1. Command interception wrapper
-2. Local command mimicry
-3. Path translation (local ↔ remote)
-4. File sync capabilities (optional)
+**Responsibilities:**
+- Load `config/remotes.json` if present
+- Provide host lookup by name
+- Support both pre-configured and ad-hoc connections
 
-### Phase 3: Advanced Features
-1. Multi-host management
-2. Session persistence
-3. Command history sync
-4. Escape sequence passthrough
-
-## Tmux Control Mode Protocol
-
-### Control Mode Commands
-
-When tmux runs with `-CC`:
-```
-%begin <time> <flags> <pane-id>
-... actual command output ...
-%end <time> <flags> <pane-id> <exit-code>
-
-%window-add @<window-id>
-%window-close @<window-id>
-%output %<pane-id> <output-data>
-%exit [reason]
-```
-
-### Our Usage Pattern
-
-```bash
-# Start control mode with named socket
-tmux -Lremote-cmd -CC
-
-# Create window and execute command
-new-window -P -F "#{pane_id}" "command here"
-
-# Parse output blocks
-# %begin ... %end denote command boundaries
-
-# Multiple commands in sequence
-send-keys -t %1 "command1" Enter
-send-keys -t %1 "command2" Enter
-```
-
-## Path Translation Strategy
-
-### Problem
-Claude Code works with local paths like `/home/user/project/src/file.ts`
-Remote host has paths like `/home/ubuntu/project/src/file.ts`
-
-### Solutions
-
-**Option 1: Working Directory Sync**
-- Maintain same relative paths
-- Always execute from project root
-- Use `cd` to navigate within remote
-
-**Option 2: Path Mapping Configuration**
-```json
-{
-  "pathMappings": {
-    "/home/user/project": "/home/ubuntu/project"
-  }
-}
-```
-
-**Option 3: Virtual File System (Advanced)**
-- SSHFS or similar mounting
-- Transparent path translation
-- File watching for changes
-
-## Command Interception for Claude Code
-
-### Wrapper Script Approach
-
-Create a wrapper that Claude Code calls instead of direct `bash`:
-
-```typescript
-// remote-command-wrapper.ts
-async function executeBash(command: string, options: BashOptions) {
-  if (isConnectedToRemote()) {
-    return await remoteSession.execute(command, {
-      cwd: translatePath(options.cwd),
-      timeout: options.timeout,
-      streaming: true
-    });
-  } else {
-    return await localExec(command, options);
-  }
-}
-```
-
-### Integration Methods
-
-**Method 1: Environment Variable**
-```bash
-export BASH_COMMAND_WRAPPER="/path/to/remote-command-wrapper"
-```
-
-**Method 2: Shell Alias**
-```bash
-alias bash="remote-command-wrapper bash"
-```
-
-**Method 3: MCP Server** (Recommended for Claude Code)
-```json
-{
-  "mcpServers": {
-    "remote-command": {
-      "command": "node",
-      "args": ["/path/to/remote-command-mcp-server.js"]
-    }
-  }
-}
-```
-
-## Escape Sequence Handling
-
-### Warp's Sequences
-
-1. **Hook Messages** (OSC 9278)
-   ```
-   \e]9278;f;{"hook": "InitSsh", "value": {...}}\a
-   ```
-
-2. **Log Messages** (DCS)
-   ```
-   \033\120\044\144<hex-encoded-json>\234
-   ```
-
-### Our Approach
-
-- **Parse and forward**: Detect escape sequences in remote output
-- **Status updates**: Send progress/status back to Claude Code
-- **Error reporting**: Use escape sequences for error communication
-
-## Configuration File Format
-
+**Config Format:**
 ```json
 {
   "version": "1.0",
@@ -283,68 +140,323 @@ alias bash="remote-command-wrapper bash"
     "production": {
       "host": "prod.example.com",
       "user": "ubuntu",
-      "identityFile": "~/.ssh/id_rsa",
-      "pathMappings": {
-        "/home/user/project": "/home/ubuntu/app"
-      },
-      "tmux": {
-        "socketName": "remote-cmd",
-        "shellPath": "/bin/bash"
-      }
-    },
-    "staging": {
-      "host": "staging.example.com",
-      "user": "deploy",
-      "identityFile": "~/.ssh/id_rsa"
+      "port": 22,
+      "identityFile": "~/.ssh/prod_key"
     }
-  },
-  "activeRemote": null,
-  "fallbackToLocal": true,
-  "commandTimeout": 300000
+  }
 }
 ```
 
-## CLI Usage
+### 5. Logger (`src/utils/logger.ts`)
 
-```bash
-# Connect to remote
-remote-cmd connect production
+Structured logging for debugging and audit trails.
 
-# Execute command (transparently routed to remote)
-bash -c "ls -la /app"
+**Responsibilities:**
+- Log to file and/or console
+- Support multiple log levels (DEBUG, INFO, WARN, ERROR)
+- Configurable via environment variables
 
-# Disconnect
-remote-cmd disconnect
-
-# List configured remotes
-remote-cmd list
-
-# Status
-remote-cmd status
+**Configuration:**
+```typescript
+LOG_LEVEL=DEBUG
+LOG_FILE=/tmp/remote-command-mcp.log
 ```
 
-## Benefits Over Other Solutions
+## Command Execution Flow
 
-1. **No Terminal Emulation**: Uses tmux control mode for clean, parseable output
-2. **Streaming**: Real-time output as commands execute
-3. **Multiplexing**: Multiple commands can run concurrently in different tmux panes
-4. **Session Persistence**: Tmux sessions survive disconnections
-5. **Native Feel**: Claude Code sees normal command outputs, not terminal escape codes
+### Normal Command (Safe)
 
-## Technical Challenges
+```
+1. AI calls remote_bash("ls /tmp")
+2. MCP Server classifies as "safe"
+3. Session.execute() called
+4. SSH exec with PTY
+5. Stdout/stderr collected
+6. Exit code captured
+7. Return result to AI
+```
 
-1. **PTY Handling**: Some commands require PTY (interactive prompts)
-2. **Signal Forwarding**: Ctrl+C and other signals need proper handling
-3. **Exit Codes**: Must accurately capture and report exit codes
-4. **Environment Variables**: Need to sync or translate env vars
-5. **File Descriptor Redirects**: Handle stdin/stdout/stderr properly
+### Dangerous Command
 
-## Next Steps
+```
+1. AI calls remote_bash("systemctl restart nginx")
+2. MCP Server classifies as "dangerous"
+3. Generate approval with challenge code
+4. Return approval request to AI
+5. User provides challenge: "Execute with code: ABC123"
+6. AI calls remote_approve(approval_id, "ABC123")
+7. Verify challenge
+8. Session.execute() called
+9. Return result to AI
+```
 
-1. Implement SSH connection manager
-2. Create tmux control mode parser
-3. Build command execution layer
-4. Develop command queue system
-5. Create MCP server for Claude Code integration
-6. Add configuration management
-7. Build CLI interface
+## Connection Flow
+
+### SSH Connection Lifecycle
+
+```
+1. AI calls remote_connect({host, user, port, identity_file})
+2. Parse connection string (user@host:port)
+3. Load SSH key or use password
+4. Establish SSH connection
+5. Detect system info (OS, package manager, shell)
+6. Emit 'connected' event
+7. Return connection status to AI
+```
+
+### System Detection
+
+On connect, we detect:
+- **OS**: Linux distribution or Darwin
+- **Package Manager**: apt, yum, dnf, pacman, zypper, brew
+- **Shell**: bash, zsh, fish
+- **Root Access**: is_root, can_run_sudo, no_root_access
+- **Home Writable**: Can write to home directory
+
+This information helps the AI make intelligent decisions about available commands.
+
+## PTY-Based Execution
+
+### Why PTY?
+
+PTY (Pseudo-Terminal) provides:
+- Clean command execution without terminal control codes
+- Proper signal handling (Ctrl+C, etc.)
+- Exit code capture
+- Real-time streaming output
+- No additional software on remote host
+
+### Implementation
+
+```typescript
+this.ssh.exec(command, { pty: true }, (err, stream) => {
+  stream.on('data', (data) => {
+    stdout += data.toString();
+  });
+
+  stream.stderr.on('data', (data) => {
+    stderr += data.toString();
+  });
+
+  stream.on('close', (code) => {
+    resolve({ stdout, stderr, exitCode: code });
+  });
+});
+```
+
+## Safety System Architecture
+
+### Three-Tier Classification
+
+**Safe Commands** (always allowed):
+- Pattern: Read-only operations
+- Examples: `ls`, `cat`, `grep`, `ps`, `docker ps`
+- No approval required
+
+**Modify Commands** (allowed in interactive mode):
+- Pattern: File/directory operations
+- Examples: `mkdir`, `touch`, `cp`, `chmod`
+- No approval in interactive mode
+- Blocked in read-only mode
+
+**Dangerous Commands** (require approval):
+- Pattern: System changes, package management, service control
+- Examples: `apt install`, `systemctl restart`, `ufw enable`
+- Always require approval in interactive mode
+- Blocked in read-only mode
+
+### Challenge Code System
+
+Prevents AI from auto-approving dangerous commands:
+
+1. Generate random 6-character alphanumeric code
+2. Display to user: "Challenge Code: ABC123"
+3. User must explicitly provide code
+4. AI cannot guess or generate code
+5. Code expires in 60 seconds
+
+### Safety Modes
+
+| Mode | Safe | Modify | Dangerous |
+|------|------|--------|-----------|
+| `unrestricted` | ✅ Execute | ✅ Execute | ✅ Execute |
+| `interactive` | ✅ Execute | ✅ Execute | ⚠️ Requires approval |
+| `read-only` | ✅ Execute | ❌ Block | ❌ Block |
+
+## Error Handling
+
+### Connection Errors
+
+- **SSH_AUTH_FAILED**: Invalid credentials or key
+- **SSH_TIMEOUT**: Connection timeout (firewall, network)
+- **SSH_HOST_UNREACHABLE**: Host not found or unreachable
+- **SSH_KEY_NOT_FOUND**: Identity file doesn't exist
+
+### Execution Errors
+
+- **NOT_CONNECTED**: Attempt to execute before connect
+- **TIMEOUT**: Command exceeded timeout limit
+- **EXEC_FAILED**: SSH exec call failed
+- **STREAM_ERROR**: Error reading command output
+
+### Safety Errors
+
+- **APPROVAL_REQUIRED**: Dangerous command needs approval
+- **APPROVAL_EXPIRED**: Approval older than 60 seconds
+- **APPROVAL_INVALID**: Challenge code mismatch
+- **COMMAND_BLOCKED**: Blocked by safety mode
+
+## Performance Considerations
+
+### Connection Pooling
+
+Currently one connection per MCP session:
+- Connect once, execute many commands
+- Disconnect when conversation ends
+- Future: Connection persistence across sessions
+
+### Command Execution
+
+- Default timeout: 120 seconds (configurable)
+- Streaming output: Real-time, not buffered
+- Exit code: Always captured
+- Working directory: Supported via `cd && command`
+
+### Memory Usage
+
+- Minimal: One SSH connection per session
+- Output streaming: Incremental, not full buffer
+- No persistent state beyond current session
+
+## Security Considerations
+
+### Authentication
+
+- SSH key authentication (preferred)
+- Password authentication (supported)
+- Keys must have proper permissions (600)
+- No key storage in MCP server
+
+### Command Execution
+
+- No command injection - direct exec
+- PTY provides isolation
+- Exit codes validated
+- No shell expansion unless intended
+
+### Audit Trail
+
+All operations logged:
+- Connection attempts (success/failure)
+- Commands executed
+- Dangerous command approvals
+- Disconnections
+
+## Testing Strategy
+
+### Unit Tests
+- Command classification
+- Approval generation/verification
+- Config parsing
+- System detection
+
+### Integration Tests
+- SSH connection
+- Command execution
+- Output streaming
+- Error handling
+
+### Manual Testing
+- Various Linux distributions
+- Different SSH configurations
+- Safety system workflow
+- Multi-host switching
+
+## Future Enhancements
+
+### Planned Features
+
+1. **Connection Persistence**
+   - Maintain connections across conversations
+   - Reconnect automatically on disconnect
+
+2. **File Transfer**
+   - Upload/download files via SFTP
+   - Bidirectional sync
+
+3. **Port Forwarding**
+   - Local/remote port forwarding
+   - Dynamic tunnels
+
+4. **Multi-Session**
+   - Multiple simultaneous connections
+   - Session switching
+
+5. **Enhanced System Detection**
+   - Container detection (Docker, Podman)
+   - Virtualization detection
+   - Distribution-specific capabilities
+
+### Known Limitations
+
+1. **No Interactive Commands**
+   - Commands requiring input will hang
+   - Use non-interactive flags (e.g., `apt-get -y`)
+
+2. **No Terminal UI**
+   - No support for ncurses/TUI applications
+   - No vim, nano, htop, etc.
+
+3. **Single Command Per Execution**
+   - No persistent shell state between commands
+   - Use `cd && command` for directory changes
+
+## Technology Stack
+
+- **Language**: TypeScript 5.3+
+- **Runtime**: Node.js 18+
+- **SSH Library**: ssh2 1.15+
+- **MCP SDK**: @modelcontextprotocol/sdk 0.5+
+- **Protocol**: MCP (Model Context Protocol)
+
+## Deployment
+
+### NPM Package
+- Published as `@analoguezone/remote-command-mcp`
+- Global install or npx execution
+- No system-wide dependencies
+
+### MCP Configuration
+- stdio transport
+- Environment variable configuration
+- Optional log file
+
+### Requirements
+- Node.js 18+ on local machine
+- SSH access to remote hosts
+- No requirements on remote hosts (just SSH)
+
+## Comparison with Alternatives
+
+### vs. Warp Warpify
+- **Warp**: Proprietary, terminal-integrated, tmux-based
+- **This**: Open source, MCP-based, PTY-based, AI-first
+
+### vs. VS Code Remote
+- **VS Code**: IDE-specific, persistent connection, file sync
+- **This**: AI assistant integration, conversation-scoped, command-focused
+
+### vs. Raw SSH
+- **SSH**: Manual execution, no AI integration
+- **This**: Transparent to AI, automatic execution, safety system
+
+## Conclusion
+
+This architecture provides a clean, simple, and reliable way to execute remote commands through AI assistants. By using direct SSH with PTY and avoiding complex middleware, we achieve:
+
+- **Reliability**: Simple execution path, fewer failure points
+- **Compatibility**: Works with any SSH-enabled host
+- **Safety**: Built-in approval system protects against accidents
+- **Transparency**: AI assistants work naturally without knowing they're remote
+
+The architecture is designed for extensibility while maintaining simplicity in the core execution path.
