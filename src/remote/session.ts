@@ -33,7 +33,6 @@ export class RemoteSession extends EventEmitter {
   private connectedAt?: Date;
   private commandsExecuted: number = 0;
   private timeoutCheckInterval?: NodeJS.Timeout;
-  private tmuxPaneId: string | null = null;
 
   constructor() {
     super();
@@ -371,37 +370,10 @@ fi;
         logger.debug('Sending tmux -Lremote-cmd -CC command');
         stream.write('tmux -Lremote-cmd -CC\n');
 
-        // Wait for tmux to start, then create a persistent shell window
+        // Wait for tmux to start
         setTimeout(() => {
-          logger.info('Tmux control mode started, creating shell window...');
-
-          // Create a window with a bash shell and capture the pane ID
-          logger.debug('Sending new-window command to create pane');
-          stream.write('new-window -P -F "#{pane_id}" bash\n');
-
-          // Set up a one-time listener to capture the pane ID
-          const paneIdListener = (data: Buffer) => {
-            const output = data.toString();
-            logger.debug(`Pane ID listener received data: ${output}`);
-            const match = output.match(/%(\d+)/);
-            if (match) {
-              this.tmuxPaneId = match[0];
-              logger.info(`Created tmux pane: ${this.tmuxPaneId}`);
-            } else {
-              logger.warn('No pane ID found in output, trying again...');
-            }
-          };
-
-          stream.once('data', paneIdListener);
-
-          setTimeout(() => {
-            if (this.tmuxPaneId) {
-              logger.info(`Tmux setup complete with pane: ${this.tmuxPaneId}`);
-            } else {
-              logger.error('Tmux setup complete but no pane ID captured!');
-            }
-            resolve();
-          }, 500);
+          logger.info('Tmux control mode started successfully');
+          resolve();
         }, 500);
       });
     });
@@ -442,17 +414,11 @@ fi;
       return;
     }
 
-    if (!this.tmuxPaneId) {
-      logger.error('Cannot execute command: Tmux pane not initialized');
-      this.commandQueue.fail(new RemoteCommandError('Tmux pane not initialized', 'NO_TMUX_PANE'));
-      return;
-    }
-
-    // Send command to the persistent bash pane
-    // Escape the command properly for send-keys
-    const escapedCmd = command.command.replace(/"/g, '\\"');
-    const tmuxCmd = `send-keys -t ${this.tmuxPaneId} "${escapedCmd}" Enter\n`;
-    logger.debug(`Executing command in tmux pane ${this.tmuxPaneId}`);
+    // Use run-shell which triggers %begin/%end events in control mode
+    // Escape the command properly for shell execution
+    const escapedCmd = command.command.replace(/'/g, "'\\''");
+    const tmuxCmd = `run-shell -b 'bash -c '"'"'${escapedCmd}'"'"''\n`;
+    logger.debug(`Executing command via run-shell`);
     logger.debug(`  Original command: ${command.command}`);
     logger.debug(`  Escaped command: ${escapedCmd}`);
     logger.debug(`  Full tmux command: ${tmuxCmd.trim()}`);
