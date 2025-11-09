@@ -220,7 +220,7 @@ The system maintains one active connection at a time. If you're already connecte
 
 **You:** "Disconnect from the server"
 
-**Claude Code:** Disconnects cleanly, closes tmux session, terminates SSH.
+**Claude Code:** Disconnects cleanly and terminates SSH connection.
 
 ### Reconnect Workflow
 
@@ -353,9 +353,9 @@ No default SSH key detected.
 
 ✅ Production servers you access frequently
 ✅ Servers with complex path mappings
-✅ Servers requiring specific tmux settings
 ✅ Team environments (share config via git)
 ✅ Consistent naming ("production", "staging", etc.)
+✅ Servers with non-standard ports or keys
 
 ### When to Use Ad-Hoc Connections
 
@@ -393,6 +393,6 @@ Connect to staging  ← Uses config again
 
 **You can connect to ANY server, ANYTIME, without leaving your conversation with Claude Code.**
 
-No configuration files needed (though they're available for convenience). Just tell Claude where to connect, and it handles the rest - SSH connection, tmux setup, command execution, output streaming, everything.
+No configuration files needed (though they're available for convenience). Just tell your AI assistant where to connect, and it handles the rest - SSH connection, PTY setup, command execution, output streaming, everything.
 
-This is the flexibility Warp's warpify provides, but integrated directly into Claude Code's natural language interface.
+This provides flexible remote command execution integrated directly into your AI assistant's natural language interface.

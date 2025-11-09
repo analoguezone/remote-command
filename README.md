@@ -321,16 +321,16 @@ npm run dev
 
 Contributions welcome! Please:
 
-1. Read [ARCHITECTURE.md](./ARCHITECTURE.md) and [IMPLEMENTATION_STRATEGY.md](./IMPLEMENTATION_STRATEGY.md)
+1. Read [ARCHITECTURE.md](./ARCHITECTURE.md) to understand the technical design
 2. Open an issue to discuss significant changes
 3. Submit PRs with clear descriptions and tests
 
 ## Documentation
 
 - [SAFETY_SYSTEM.md](./SAFETY_SYSTEM.md) - Command safety and approval workflow
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - Technical architecture details
-- [AD_HOC_CONNECTIONS.md](./AD_HOC_CONNECTIONS.md) - Connection examples
-- [IMPLEMENTATION_STRATEGY.md](./IMPLEMENTATION_STRATEGY.md) - Implementation details
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - Technical architecture and implementation details
+- [AD_HOC_CONNECTIONS.md](./AD_HOC_CONNECTIONS.md) - Connection examples and usage patterns
+- [PUBLISHING.md](./PUBLISHING.md) - Guide for publishing to npm (maintainers)
 
 ## License
 
