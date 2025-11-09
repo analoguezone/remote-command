@@ -14,6 +14,14 @@ import {
 import { RemoteSession } from '../remote/session.js';
 import { config } from '../utils/config.js';
 import { logger } from '../utils/logger.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJson = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
+const VERSION = packageJson.version;
 
 export class RemoteCommandMCPServer {
   private server: Server;
@@ -23,7 +31,7 @@ export class RemoteCommandMCPServer {
     this.server = new Server(
       {
         name: 'remote-command-server',
-        version: '1.0.0'
+        version: VERSION
       },
       {
         capabilities: {
@@ -236,7 +244,12 @@ export class RemoteCommandMCPServer {
         content: [
           {
             type: 'text',
-            text: `Connected to ${status.user}@${status.remoteHost}:${sshOptions.port || 22}\n\nSystem Info:\n${JSON.stringify(status.systemInfo, null, 2)}`
+            text: `Connected to ${status.user}@${status.remoteHost}:${sshOptions.port || 22}
+
+MCP Server Version: ${VERSION} (marker-based execution)
+
+System Info:
+${JSON.stringify(status.systemInfo, null, 2)}`
           }
         ]
       };
@@ -357,6 +370,7 @@ export class RemoteCommandMCPServer {
 
     const statusText = `Status: Connected
 
+MCP Server Version: ${VERSION} (marker-based execution)
 Host: ${status.user}@${status.remoteHost}
 Connected at: ${status.connectedAt?.toISOString()}
 Commands executed: ${status.commandsExecuted}
