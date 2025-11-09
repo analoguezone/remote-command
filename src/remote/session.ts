@@ -375,9 +375,10 @@ fi;
         setTimeout(() => {
           logger.info('Tmux control mode started, creating shell window...');
 
-          // Create a window with a bash shell and capture the pane ID
-          logger.debug('Sending new-window command to create pane');
-          stream.write('new-window -P -F "#{pane_id}" bash\n');
+          // Create a window with a bash login shell and capture the pane ID
+          // Using --login ensures PATH and environment variables are properly loaded
+          logger.debug('Sending new-window command to create pane with login shell');
+          stream.write('new-window -P -F "#{pane_id}" bash --login\n');
 
           // Set up a one-time listener to capture the pane ID
           const paneIdListener = (data: Buffer) => {

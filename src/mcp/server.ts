@@ -289,7 +289,15 @@ export class RemoteCommandMCPServer {
         content: [
           {
             type: 'text',
-            text: 'Error: Not connected to any remote host. Use remote_connect first.'
+            text: `Error: Not connected to any remote host.
+
+Please connect first using one of these methods:
+• "Connect to root@192.168.10.238"
+• "Connect to user@hostname"
+• "Connect to user@hostname:port"
+• "Connect to <config-name>" (if you have a configured remote)
+
+Then run your command again.`
           }
         ],
         isError: true
