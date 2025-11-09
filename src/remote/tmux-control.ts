@@ -19,7 +19,6 @@ export class TmuxControlParser extends EventEmitter {
   private buffer: string = '';
   private inCommand: boolean = false;
   private currentOutput: string[] = [];
-  private currentPane?: number;
 
   /**
    * Feed data into the parser
@@ -171,7 +170,6 @@ export class TmuxControlParser extends EventEmitter {
       case 'begin':
         this.inCommand = true;
         this.currentOutput = [];
-        this.currentPane = message.pane;
         break;
 
       case 'end':
@@ -182,7 +180,6 @@ export class TmuxControlParser extends EventEmitter {
           output: this.currentOutput.join('\n')
         });
         this.currentOutput = [];
-        this.currentPane = undefined;
         break;
 
       case 'exit':
@@ -202,7 +199,6 @@ export class TmuxControlParser extends EventEmitter {
     this.buffer = '';
     this.inCommand = false;
     this.currentOutput = [];
-    this.currentPane = undefined;
   }
 }
 

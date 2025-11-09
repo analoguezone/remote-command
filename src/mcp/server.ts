@@ -13,7 +13,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { RemoteSession } from '../remote/session.js';
 import { config } from '../utils/config.js';
-import { logger, LogLevel } from '../utils/logger.js';
+import { logger } from '../utils/logger.js';
 
 export class RemoteCommandMCPServer {
   private server: Server;
