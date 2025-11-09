@@ -20,7 +20,11 @@ const DANGEROUS_PATTERNS = [
   /\b(apt|apt-get|yum|dnf|pacman|zypper|brew)\s+(install|remove|purge|autoremove|upgrade|dist-upgrade)/,
 
   // System services
-  /\b(systemctl|service)\s+(start|stop|restart|reload|enable|disable|mask)/,
+  /\b(systemctl|service|supervisorctl)\s+(start|stop|restart|reload|enable|disable|mask)/,
+
+  // Docker dangerous operations
+  /\b(docker)\s+(stop|kill|rm|restart|pause|unpause)\s/,
+  /\b(docker-compose)\s+(down|stop|restart|kill)/,
 
   // Firewall
   /\b(ufw|iptables|firewalld|nft)\s+(enable|disable|allow|deny|delete|flush)/,
