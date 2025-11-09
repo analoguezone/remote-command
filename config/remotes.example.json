@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "remotes": {
+    "production": {
+      "host": "prod.example.com",
+      "user": "ubuntu",
+      "identityFile": "~/.ssh/id_rsa",
+      "port": 22,
+      "pathMappings": {
+        "/home/user/project": "/home/ubuntu/app"
+      },
+      "tmux": {
+        "socketName": "remote-cmd",
+        "shellPath": "/bin/bash"
+      }
+    },
+    "staging": {
+      "host": "staging.example.com",
+      "user": "deploy",
+      "identityFile": "~/.ssh/staging_key",
+      "port": 2222
+    },
+    "local-vm": {
+      "host": "192.168.1.100",
+      "user": "developer",
+      "identityFile": "~/.ssh/vm_key"
+    }
+  }
+}
