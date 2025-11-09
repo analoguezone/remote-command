@@ -414,11 +414,13 @@ fi;
       return;
     }
 
-    // Use run-shell which triggers %begin/%end events in control mode
-    // Escape the command properly for shell execution
+    // Create a new window that runs the command and exits
+    // This triggers %begin/%end events in control mode
+    // The -d flag prevents the window from becoming current
+    // -P prints the window info
     const escapedCmd = command.command.replace(/'/g, "'\\''");
-    const tmuxCmd = `run-shell -b 'bash -c '"'"'${escapedCmd}'"'"''\n`;
-    logger.debug(`Executing command via run-shell`);
+    const tmuxCmd = `new-window -d -P 'bash -c '"'"'${escapedCmd}; exit'"'"''\n`;
+    logger.debug(`Executing command in new window`);
     logger.debug(`  Original command: ${command.command}`);
     logger.debug(`  Escaped command: ${escapedCmd}`);
     logger.debug(`  Full tmux command: ${tmuxCmd.trim()}`);
