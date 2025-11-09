@@ -33,6 +33,8 @@ export class RemoteSession extends EventEmitter {
   private connectedAt?: Date;
   private commandsExecuted: number = 0;
   private timeoutCheckInterval?: NodeJS.Timeout;
+  private tmuxPaneId: string | null = null;
+  private outputBuffer: string = '';
 
   constructor() {
     super();
@@ -350,11 +352,11 @@ fi;
 
         this.tmuxStream = stream;
 
-        // Set up stream handlers
+        // Set up stream handlers with direct output parsing
         stream.on('data', (data: Buffer) => {
           const output = data.toString();
-          logger.debug(`Tmux stream data received (${data.length} bytes):`, output);
-          this.parser.feed(data);
+          this.outputBuffer += output;
+          this.processOutputBuffer();
         });
 
         stream.on('close', () => {
@@ -367,16 +369,63 @@ fi;
         });
 
         // Start tmux in control mode
-        logger.debug('Sending tmux -Lremote-cmd -CC command');
         stream.write('tmux -Lremote-cmd -CC\n');
 
-        // Wait for tmux to start
+        // Create a persistent shell pane after tmux starts
         setTimeout(() => {
-          logger.info('Tmux control mode started successfully');
-          resolve();
+          stream.write('new-window -P -F "PANE:#{pane_id}" bash\n');
+
+          setTimeout(() => {
+            // Extract pane ID from output buffer
+            const match = this.outputBuffer.match(/PANE:(%\d+)/);
+            if (match) {
+              this.tmuxPaneId = match[1];
+              logger.info(`Created persistent pane: ${this.tmuxPaneId}`);
+              this.outputBuffer = ''; // Clear buffer
+              resolve();
+            } else {
+              reject(new RemoteCommandError('Failed to create tmux pane', 'PANE_CREATE_FAILED'));
+            }
+          }, 300);
         }, 500);
       });
     });
+  }
+
+  /**
+   * Process output buffer looking for command markers
+   */
+  private processOutputBuffer(): void {
+    const current = this.commandQueue.getCurrent();
+    if (!current) return;
+
+    const startMarker = `>>>CMD_START_${current.id}>>>`;
+    const endMarker = `<<<CMD_END_${current.id}:`;
+
+    const startIdx = this.outputBuffer.indexOf(startMarker);
+    const endIdx = this.outputBuffer.indexOf(endMarker);
+
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      // Found both markers, extract output
+      const outputStart = startIdx + startMarker.length;
+      const output = this.outputBuffer.substring(outputStart, endIdx).trim();
+
+      // Extract exit code
+      const exitCodeMatch = this.outputBuffer.substring(endIdx).match(/<<<CMD_END_[^:]+:(\d+)>>>/);
+      const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1], 10) : 0;
+
+      const duration = Date.now() - (current.startTime || Date.now());
+      this.commandQueue.complete({
+        stdout: output,
+        stderr: '',
+        exitCode,
+        duration
+      });
+
+      // Clear processed output from buffer
+      const endMarkerEnd = this.outputBuffer.indexOf('>>>', endIdx) + 3;
+      this.outputBuffer = this.outputBuffer.substring(endMarkerEnd);
+    }
   }
 
   /**
@@ -414,18 +463,29 @@ fi;
       return;
     }
 
-    // Create a new window that runs the command and exits
-    // This triggers %begin/%end events in control mode
-    // The -d flag prevents the window from becoming current
-    // -P prints the window info
+    if (!this.tmuxPaneId) {
+      logger.error('Cannot execute command: Tmux pane not initialized');
+      this.commandQueue.fail(new RemoteCommandError('Tmux pane not initialized', 'NO_TMUX_PANE'));
+      return;
+    }
+
+    // Wrap command with markers for output parsing
+    const startMarker = `>>>CMD_START_${command.id}>>>`;
+    const endMarker = `<<<CMD_END_${command.id}`;
+
+    // Escape the original command
     const escapedCmd = command.command.replace(/'/g, "'\\''");
-    const tmuxCmd = `new-window -d -P 'bash -c '"'"'${escapedCmd}; exit'"'"''\n`;
-    logger.debug(`Executing command in new window`);
+
+    // Create a wrapper that outputs markers and captures exit code
+    const wrappedCmd = `echo '${startMarker}' && ${escapedCmd}; _ec=$?; echo '${endMarker}:'$_ec'>>>'`;
+
+    // Send to the persistent pane
+    const tmuxCmd = `send-keys -t ${this.tmuxPaneId} "${wrappedCmd.replace(/"/g, '\\"')}" Enter\n`;
+
+    logger.debug(`Executing command with markers in pane ${this.tmuxPaneId}`);
+    logger.debug(`  Command ID: ${command.id}`);
     logger.debug(`  Original command: ${command.command}`);
-    logger.debug(`  Escaped command: ${escapedCmd}`);
-    logger.debug(`  Full tmux command: ${tmuxCmd.trim()}`);
     this.tmuxStream.write(tmuxCmd);
-    logger.debug('Command sent to tmux stream');
   }
 
   /**
