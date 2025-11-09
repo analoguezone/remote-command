@@ -14,6 +14,7 @@ import {
 import { RemoteSession } from '../remote/session.js';
 import { config } from '../utils/config.js';
 import { logger } from '../utils/logger.js';
+import { ApprovalManager, classifyCommand } from '../utils/command-safety.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -23,11 +24,17 @@ const __dirname = dirname(__filename);
 const packageJson = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
 const VERSION = packageJson.version;
 
+// Safety mode from environment variable
+type SafetyMode = 'unrestricted' | 'interactive' | 'read-only';
+const SAFETY_MODE = (process.env.SAFETY_MODE || 'interactive') as SafetyMode;
+
 export class RemoteCommandMCPServer {
   private server: Server;
   private session: RemoteSession;
+  private approvalManager: ApprovalManager;
 
   constructor() {
+    this.approvalManager = new ApprovalManager();
     this.server = new Server(
       {
         name: 'remote-command-server',
@@ -86,6 +93,9 @@ export class RemoteCommandMCPServer {
 
           case 'remote_status':
             return await this.handleStatus();
+
+          case 'remote_approve':
+            return await this.handleApprove(args as any);
 
           default:
             return {
@@ -184,6 +194,24 @@ export class RemoteCommandMCPServer {
         inputSchema: {
           type: 'object',
           properties: {}
+        }
+      },
+      {
+        name: 'remote_approve',
+        description: 'Approve a pending dangerous command for execution. Required when SAFETY_MODE is interactive.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            approval_id: {
+              type: 'string',
+              description: 'The approval ID from the pending command request'
+            },
+            challenge: {
+              type: 'string',
+              description: 'The challenge code provided by the user to confirm approval'
+            }
+          },
+          required: ['approval_id', 'challenge']
         }
       }
     ];
@@ -309,6 +337,67 @@ ${JSON.stringify(status.systemInfo, null, 2)}`
       };
     }
 
+    // Classify command for safety
+    const classification = classifyCommand(args.command);
+    logger.info(`Command classification: ${classification.level} - ${args.command}`);
+
+    // Check safety mode
+    if (SAFETY_MODE === 'read-only' && classification.level !== 'safe') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `⚠️  COMMAND BLOCKED - Read-only mode enabled
+
+Command: ${args.command}
+Classification: ${classification.level}
+Reason: ${classification.reason}
+
+This command modifies the system and is not allowed in read-only mode.
+To allow this command, set SAFETY_MODE=interactive or SAFETY_MODE=unrestricted in your MCP configuration.`
+          }
+        ],
+        isError: true
+      };
+    }
+
+    if (SAFETY_MODE === 'interactive' && classification.level === 'dangerous') {
+      // Create pending approval
+      const approval = this.approvalManager.createApproval(args.command, classification);
+      logger.warn(`Dangerous command requires approval: ${args.command} (ID: ${approval.id})`);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `⚠️  DANGEROUS COMMAND - Approval Required
+
+Command: ${args.command}
+Classification: ${classification.level}
+Reason: ${classification.reason}
+
+This command requires explicit user approval before execution.
+
+Approval ID: ${approval.id}
+Challenge Code: ${approval.challenge}
+Expires in: 60 seconds
+
+To approve this command, the user must provide the challenge code.
+The AI assistant CANNOT automatically approve dangerous commands.
+
+User should respond with:
+"Execute with challenge code: ${approval.challenge}"
+
+Then you can call remote_approve with:
+- approval_id: ${approval.id}
+- challenge: ${approval.challenge}`
+          }
+        ],
+        isError: true
+      };
+    }
+
+    // Execute the command (safe or unrestricted mode)
     try {
       const result = await this.session.execute(args.command, {
         timeout: args.timeout,
@@ -371,6 +460,7 @@ ${JSON.stringify(status.systemInfo, null, 2)}`
     const statusText = `Status: Connected
 
 MCP Server Version: ${VERSION} (marker-based execution)
+Safety Mode: ${SAFETY_MODE}
 Host: ${status.user}@${status.remoteHost}
 Connected at: ${status.connectedAt?.toISOString()}
 Commands executed: ${status.commandsExecuted}
@@ -389,6 +479,90 @@ ${JSON.stringify(status.systemInfo, null, 2)}`;
   }
 
   /**
+   * Handle remote_approve tool
+   */
+  private async handleApprove(args: { approval_id: string; challenge: string }) {
+    if (!this.session.isConnected()) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Error: Not connected to any remote host.'
+          }
+        ],
+        isError: true
+      };
+    }
+
+    // Verify the approval
+    const approval = this.approvalManager.verifyApproval(args.approval_id, args.challenge);
+
+    if (!approval) {
+      logger.warn(`Invalid approval attempt: ID=${args.approval_id}, Challenge=${args.challenge}`);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Approval Failed
+
+The approval ID or challenge code is invalid, or the approval has expired.
+
+Possible reasons:
+- Incorrect challenge code
+- Approval ID not found
+- Approval expired (60 second timeout)
+
+Please request a new approval by running the command again.`
+          }
+        ],
+        isError: true
+      };
+    }
+
+    logger.info(`Approval granted for command: ${approval.command}`);
+
+    // Execute the approved command
+    try {
+      const result = await this.session.execute(approval.command);
+
+      // Format output
+      let output = `✅ Command Approved and Executed\n\nCommand: ${approval.command}\n\n`;
+
+      if (result.stdout) {
+        output += result.stdout;
+      }
+      if (result.stderr) {
+        output += '\n--- stderr ---\n' + result.stderr;
+      }
+
+      // Add exit code if non-zero
+      if (result.exitCode !== 0) {
+        output += `\n--- Exit code: ${result.exitCode} ---`;
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: output
+          }
+        ],
+        isError: result.exitCode !== 0
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Command execution failed: ${error.message}`
+          }
+        ],
+        isError: true
+      };
+    }
+  }
+
+  /**
    * Start the MCP server
    */
   async start(): Promise<void> {
@@ -404,6 +578,7 @@ ${JSON.stringify(status.systemInfo, null, 2)}`;
     if (this.session.isConnected()) {
       await this.session.disconnect();
     }
+    this.approvalManager.destroy();
     await this.server.close();
   }
 }
