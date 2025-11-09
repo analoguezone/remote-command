@@ -84,9 +84,34 @@ Then you can use short names: `"Connect to production"` instead of typing full h
 
 ## OpenCode Integration
 
-Add to your `opencode.jsonc` configuration file:
+### Option 1: NPM Package (Recommended - Once Published)
 
-```jsonc
+If the package is published to npm, you can use:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "remote-command": {
+      "type": "local",
+      "command": ["npx", "-y", "@analoguezone/remote-command-mcp"],
+      "enabled": true,
+      "environment": {
+        "LOG_LEVEL": "INFO"
+      },
+      "timeout": 10000
+    }
+  }
+}
+```
+
+**Note:** This will automatically download and run the latest version from npm.
+
+### Option 2: Local Development
+
+For local development or if not published to npm yet:
+
+```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -109,7 +134,7 @@ To find the absolute path:
 ```bash
 cd /path/to/remote-command
 pwd
-# Use the output in your opencode.jsonc
+# Use the output in your opencode.json
 ```
 
 ## Usage
@@ -331,10 +356,10 @@ If commands hang:
 
 ### OpenCode Doesn't See Tools
 
-1. Verify MCP server is configured in `opencode.jsonc`
+1. Verify MCP server is configured in `opencode.json`
 2. Check that `"enabled": true` is set
 3. Restart OpenCode after adding/modifying MCP server config
-4. Check server logs for errors (set `LOG_LEVEL: "DEBUG"` in environment)
+4. Check server logs for errors (set `"LOG_LEVEL": "DEBUG"` in environment)
 5. Test the server manually: `node /path/to/remote-command/dist/index.js`
 
 ## Comparison with Other Solutions

@@ -51,9 +51,9 @@ pwd
 # Copy this path
 ```
 
-Add to your `opencode.jsonc` configuration file:
+Add to your `opencode.json` configuration file:
 
-```jsonc
+```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -165,15 +165,15 @@ ssh ubuntu@your-server.com "tmux -V"
 
 ### MCP not showing up?
 
-1. Check absolute path is correct in `opencode.jsonc`
+1. Check absolute path is correct in `opencode.json`
 2. Verify `"enabled": true` is set
 3. Verify build: `ls dist/index.js`
-4. Check `opencode.jsonc` JSON syntax is valid
+4. Check `opencode.json` JSON syntax is valid
 5. Restart OpenCode completely
 
 ### Commands timing out?
 
-1. Increase timeout in `opencode.jsonc`: `"timeout": 30000` (30 seconds)
+1. Increase timeout in `opencode.json`: `"timeout": 30000` (30 seconds)
 2. Check remote host performance
 3. Enable debug logging: `"LOG_LEVEL": "DEBUG"` in environment
 
