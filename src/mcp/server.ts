@@ -274,7 +274,7 @@ export class RemoteCommandMCPServer {
             type: 'text',
             text: `Connected to ${status.user}@${status.remoteHost}:${sshOptions.port || 22}
 
-MCP Server Version: ${VERSION} (marker-based execution)
+MCP Server Version: ${VERSION} (PTY-based execution)
 
 System Info:
 ${JSON.stringify(status.systemInfo, null, 2)}`
@@ -459,7 +459,7 @@ Then you can call remote_approve with:
 
     const statusText = `Status: Connected
 
-MCP Server Version: ${VERSION} (marker-based execution)
+MCP Server Version: ${VERSION} (PTY-based execution)
 Safety Mode: ${SAFETY_MODE}
 Host: ${status.user}@${status.remoteHost}
 Connected at: ${status.connectedAt?.toISOString()}

@@ -1,86 +1,34 @@
 /**
  * Remote Session Manager
  *
- * Manages SSH connection, tmux control mode, and command execution on remote hosts.
+ * Manages SSH connection and command execution on remote hosts using PTY.
  */
 
-import { Client as SSH2Client, ClientChannel } from 'ssh2';
+import { Client as SSH2Client } from 'ssh2';
 import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
-import { TmuxControlParser, TmuxControlCommands } from './tmux-control.js';
-import { CommandQueue } from './command-queue.js';
 import {
   SSHOptions,
   ExecOptions,
   CommandResult,
   SystemInfo,
   SessionStatus,
-  RemoteCommandError,
-  TmuxError
+  RemoteCommandError
 } from '../types.js';
 import { logger } from '../utils/logger.js';
 
 export class RemoteSession extends EventEmitter {
   private ssh: SSH2Client | null = null;
-  private tmuxStream: ClientChannel | null = null;
-  private parser: TmuxControlParser;
-  private commandQueue: CommandQueue;
   private connected: boolean = false;
   private currentHost?: string;
   private currentUser?: string;
   private systemInfo?: SystemInfo;
   private connectedAt?: Date;
   private commandsExecuted: number = 0;
-  private timeoutCheckInterval?: NodeJS.Timeout;
-  private tmuxPaneId: string | null = null;
-  private outputBuffer: string = '';
 
   constructor() {
     super();
-    this.parser = new TmuxControlParser();
-    this.commandQueue = new CommandQueue();
-
-    this.setupParsers();
-  }
-
-  /**
-   * Set up parser event handlers
-   */
-  private setupParsers(): void {
-    // Forward parser events
-    this.parser.on('control', (message) => {
-      logger.debug('Control message:', message);
-    });
-
-    this.parser.on('output', (line) => {
-      this.commandQueue.output(line);
-    });
-
-    this.parser.on('command-complete', ({ exitCode, output }) => {
-      const duration = Date.now() - (this.commandQueue.getCurrent()?.startTime || Date.now());
-      this.commandQueue.complete({
-        stdout: output,
-        stderr: '',
-        exitCode: exitCode || 0,
-        duration
-      });
-    });
-
-    this.parser.on('error', (error) => {
-      logger.error('Tmux parser error:', error);
-      this.commandQueue.fail(error);
-    });
-
-    this.parser.on('tmux-exit', (reason) => {
-      logger.warn('Tmux exited:', reason);
-      this.disconnect();
-    });
-
-    // Queue events
-    this.commandQueue.on('executing', (command) => {
-      this.executeQueuedCommand(command);
-    });
   }
 
   /**
@@ -108,16 +56,13 @@ export class RemoteSession extends EventEmitter {
 
     // Handle authentication
     if (options.password) {
-      // Password-based authentication
       sshConfig.password = options.password;
     } else if (options.privateKey) {
-      // Private key provided directly
       sshConfig.privateKey = options.privateKey;
       if (options.passphrase) {
         sshConfig.passphrase = options.passphrase;
       }
     } else if (options.identityFile) {
-      // Private key from file
       const keyPath = options.identityFile.replace(/^~/, process.env.HOME || '');
       try {
         sshConfig.privateKey = fs.readFileSync(keyPath);
@@ -182,130 +127,78 @@ export class RemoteSession extends EventEmitter {
       this.ssh!.connect(sshConfig);
     });
 
-    // Bootstrap remote (check tmux, get system info)
-    await this.bootstrap();
-
-    // Start tmux control mode
-    await this.startTmuxControl();
+    // Get system info
+    await this.detectSystemInfo();
 
     this.connected = true;
     this.connectedAt = new Date();
-
-    // Start timeout checker
-    this.timeoutCheckInterval = setInterval(() => {
-      this.commandQueue.checkTimeout();
-    }, 1000);
 
     this.emit('connected', this.getStatus());
   }
 
   /**
-   * Bootstrap remote host (check tmux, get system info)
+   * Detect system information
    */
-  private async bootstrap(): Promise<void> {
-    logger.info('Bootstrapping remote host...');
+  private async detectSystemInfo(): Promise<void> {
+    logger.info('Detecting system information...');
 
-    // Read bootstrap script
-    const scriptPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../bootstrap/warpify.sh');
-    let bootstrapScript: string;
+    const script = `
+OS=$(uname);
+PKG="";
+if [ "$OS" = "Darwin" ]; then
+  if command -v brew >/dev/null 2>&1; then PKG="homebrew"; fi;
+elif [ "$OS" = "Linux" ]; then
+  if command -v pacman >/dev/null 2>&1; then PKG="pacman";
+  elif command -v zypper >/dev/null 2>&1; then PKG="zypper";
+  elif command -v dnf >/dev/null 2>&1; then PKG="dnf";
+  elif command -v yum >/dev/null 2>&1; then PKG="yum";
+  elif command -v apt >/dev/null 2>&1; then PKG="apt";
+  fi;
+fi;
+RA="no_root_access";
+if command -v sudo >/dev/null && { sudo -vn && sudo -ln; } 2>&1 | grep -E 'may run|a password' > /dev/null; then
+  RA="can_run_sudo";
+elif [ "$(id -u)" -eq 0 ]; then
+  RA="is_root";
+fi;
+WH=$( [ -w ~ ] && echo true || echo false );
+printf '%s' "{\\"os\\": \\"$OS\\", \\"pkg\\": \\"$PKG\\", \\"shell\\": \\"$(basename $SHELL)\\", \\"root_access\\": \\"$RA\\", \\"writable_home\\": $WH}";
+`;
 
     try {
-      bootstrapScript = fs.readFileSync(scriptPath, 'utf-8');
-    } catch {
-      // Use inline bootstrap if file doesn't exist
-      bootstrapScript = this.getInlineBootstrapScript();
-    }
-
-    // Execute bootstrap script
-    const result = await this.execRaw(bootstrapScript);
-
-    // Parse system info from output
-    try {
-      // Look for JSON in output
+      const result = await this.execDirect(script);
       const jsonMatch = result.match(/\{[^}]*"os"[^}]*\}/);
       if (jsonMatch) {
         this.systemInfo = JSON.parse(jsonMatch[0]);
         logger.info('System info:', this.systemInfo);
       }
     } catch (err) {
-      logger.warn('Failed to parse system info:', err);
-    }
-
-    // Check if tmux is available
-    if (result.includes('TmuxNotInstalled')) {
-      throw new TmuxError(
-        'Tmux is not installed on the remote host',
-        'TmuxNotInstalled',
-        this.systemInfo
-      );
-    }
-
-    if (result.includes('UnsupportedTmuxVersion')) {
-      throw new TmuxError(
-        'Tmux version is too old (need >= 2.9)',
-        'UnsupportedTmuxVersion',
-        this.systemInfo
-      );
+      logger.warn('Failed to detect system info:', err);
     }
   }
 
   /**
-   * Get inline bootstrap script
+   * Execute command directly via SSH exec
    */
-  private getInlineBootstrapScript(): string {
-    return `
-_find() { command -v "$1" >/dev/null 2>&1; };
-_system_details() {
-  OS=$(uname);
-  PKG="";
-  if [ "$OS" = "Darwin" ]; then
-    if _find brew; then PKG="homebrew"; fi;
-  elif [ "$OS" = "Linux" ]; then
-    if _find pacman; then PKG="pacman";
-    elif _find zypper; then PKG="zypper";
-    elif _find dnf; then PKG="dnf";
-    elif _find yum; then PKG="yum";
-    elif _find apt; then PKG="apt";
-    fi;
-  fi;
-  RA="no_root_access";
-  if command -v sudo >/dev/null && { sudo -vn && sudo -ln; } 2>&1 | grep -E 'may run|a password' > /dev/null; then
-    RA="can_run_sudo";
-  elif [ "$(id -u)" -eq 0 ]; then
-    RA="is_root";
-  fi;
-  WH=$( [ -w ~ ] && echo true || echo false );
-  printf '%s' "{\\"os\\": \\"$OS\\", \\"pkg\\": \\"$PKG\\", \\"shell\\": \\"$(basename $SHELL)\\", \\"root_access\\": \\"$RA\\", \\"writable_home\\": $WH}";
-};
-if _find tmux; then
-  VER=$(tmux -V 2>/dev/null | awk '{print $2}');
-  if [ -z "$VER" ]; then
-    echo "TmuxFailed";
-  elif [ "$(printf '%s\\n' "$VER" "2.9" | sort -V | tail -n1)" != "2.9" ]; then
-    echo "UnsupportedTmuxVersion";
-    _system_details;
-  else
-    _system_details;
-  fi;
-else
-  echo "TmuxNotInstalled";
-  _system_details;
-fi;
-`;
-  }
-
-  /**
-   * Execute raw command via SSH (not through tmux)
-   */
-  private execRaw(command: string): Promise<string> {
+  private execDirect(command: string, options: { pty?: boolean; timeout?: number } = {}): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.ssh) {
         reject(new RemoteCommandError('Not connected', 'NOT_CONNECTED'));
         return;
       }
 
-      this.ssh.exec(command, (err, stream) => {
+      const execOptions: any = {};
+      if (options.pty) {
+        execOptions.pty = true;
+      }
+
+      const timeout = setTimeout(() => {
+        reject(new RemoteCommandError(`Command timeout after ${options.timeout || 120000}ms`, 'TIMEOUT'));
+      }, options.timeout || 120000);
+
+      this.ssh.exec(command, execOptions, (err, stream) => {
         if (err) {
+          clearTimeout(timeout);
           reject(new RemoteCommandError(`Exec failed: ${err.message}`, 'EXEC_FAILED', err));
           return;
         }
@@ -322,110 +215,20 @@ fi;
         });
 
         stream.on('close', (code: number) => {
+          clearTimeout(timeout);
           if (code !== 0 && stderr) {
-            reject(new RemoteCommandError(`Command failed: ${stderr}`, 'COMMAND_FAILED', { code, stderr }));
+            reject(new RemoteCommandError(`Command failed with code ${code}: ${stderr}`, 'COMMAND_FAILED', { code, stderr }));
           } else {
             resolve(stdout);
           }
         });
+
+        stream.on('error', (err: Error) => {
+          clearTimeout(timeout);
+          reject(new RemoteCommandError(`Stream error: ${err.message}`, 'STREAM_ERROR', err));
+        });
       });
     });
-  }
-
-  /**
-   * Start tmux in control mode
-   */
-  private async startTmuxControl(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.ssh) {
-        reject(new RemoteCommandError('Not connected', 'NOT_CONNECTED'));
-        return;
-      }
-
-      logger.info('Starting tmux control mode...');
-
-      this.ssh.shell((err, stream) => {
-        if (err) {
-          reject(new RemoteCommandError(`Failed to start shell: ${err.message}`, 'SHELL_FAILED', err));
-          return;
-        }
-
-        this.tmuxStream = stream;
-
-        // Set up stream handlers with direct output parsing
-        stream.on('data', (data: Buffer) => {
-          const output = data.toString();
-          this.outputBuffer += output;
-          this.processOutputBuffer();
-        });
-
-        stream.on('close', () => {
-          logger.info('Tmux stream closed');
-          this.handleDisconnect();
-        });
-
-        stream.stderr.on('data', (data: Buffer) => {
-          logger.warn('Tmux stderr:', data.toString());
-        });
-
-        // Start tmux in control mode
-        stream.write('tmux -Lremote-cmd -CC\n');
-
-        // Create a persistent shell pane after tmux starts
-        setTimeout(() => {
-          stream.write('new-window -P -F "PANE:#{pane_id}" bash\n');
-
-          setTimeout(() => {
-            // Extract pane ID from output buffer
-            const match = this.outputBuffer.match(/PANE:(%\d+)/);
-            if (match) {
-              this.tmuxPaneId = match[1];
-              logger.info(`Created persistent pane: ${this.tmuxPaneId}`);
-              this.outputBuffer = ''; // Clear buffer
-              resolve();
-            } else {
-              reject(new RemoteCommandError('Failed to create tmux pane', 'PANE_CREATE_FAILED'));
-            }
-          }, 300);
-        }, 500);
-      });
-    });
-  }
-
-  /**
-   * Process output buffer looking for command markers
-   */
-  private processOutputBuffer(): void {
-    const current = this.commandQueue.getCurrent();
-    if (!current) return;
-
-    const startMarker = `>>>CMD_START_${current.id}>>>`;
-    const endMarker = `<<<CMD_END_${current.id}:`;
-
-    const startIdx = this.outputBuffer.indexOf(startMarker);
-    const endIdx = this.outputBuffer.indexOf(endMarker);
-
-    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-      // Found both markers, extract output
-      const outputStart = startIdx + startMarker.length;
-      const output = this.outputBuffer.substring(outputStart, endIdx).trim();
-
-      // Extract exit code
-      const exitCodeMatch = this.outputBuffer.substring(endIdx).match(/<<<CMD_END_[^:]+:(\d+)>>>/);
-      const exitCode = exitCodeMatch ? parseInt(exitCodeMatch[1], 10) : 0;
-
-      const duration = Date.now() - (current.startTime || Date.now());
-      this.commandQueue.complete({
-        stdout: output,
-        stderr: '',
-        exitCode,
-        duration
-      });
-
-      // Clear processed output from buffer
-      const endMarkerEnd = this.outputBuffer.indexOf('>>>', endIdx) + 3;
-      this.outputBuffer = this.outputBuffer.substring(endMarkerEnd);
-    }
   }
 
   /**
@@ -439,53 +242,67 @@ fi;
     logger.debug(`Executing command: ${command}`);
     this.commandsExecuted++;
 
+    const startTime = Date.now();
+
     // Build full command with cwd if specified
     let fullCommand = command;
     if (options.cwd) {
-      fullCommand = TmuxControlCommands.execInDir(options.cwd, command);
+      fullCommand = `cd "${options.cwd.replace(/"/g, '\\"')}" && ${command}`;
     }
 
-    // Enqueue command
-    return this.commandQueue.enqueue(fullCommand, {
-      timeout: options.timeout,
-      cwd: options.cwd,
-      env: options.env
+    return new Promise((resolve, reject) => {
+      if (!this.ssh) {
+        reject(new RemoteCommandError('Not connected', 'NOT_CONNECTED'));
+        return;
+      }
+
+      // Use PTY for better compatibility
+      const execOptions: any = { pty: true };
+
+      const timeout = setTimeout(() => {
+        reject(new RemoteCommandError(`Command timeout after ${options.timeout || 120000}ms`, 'TIMEOUT'));
+      }, options.timeout || 120000);
+
+      this.ssh.exec(fullCommand, execOptions, (err, stream) => {
+        if (err) {
+          clearTimeout(timeout);
+          reject(new RemoteCommandError(`Exec failed: ${err.message}`, 'EXEC_FAILED', err));
+          return;
+        }
+
+        let stdout = '';
+        let stderr = '';
+        let exitCode = 0;
+
+        stream.on('data', (data: Buffer) => {
+          stdout += data.toString();
+        });
+
+        stream.stderr.on('data', (data: Buffer) => {
+          stderr += data.toString();
+        });
+
+        stream.on('close', (code: number, signal: string) => {
+          clearTimeout(timeout);
+          exitCode = code || 0;
+
+          const duration = Date.now() - startTime;
+          logger.debug(`Command completed with exit code ${exitCode} in ${duration}ms`);
+
+          resolve({
+            stdout,
+            stderr,
+            exitCode,
+            duration
+          });
+        });
+
+        stream.on('error', (err: Error) => {
+          clearTimeout(timeout);
+          reject(new RemoteCommandError(`Stream error: ${err.message}`, 'STREAM_ERROR', err));
+        });
+      });
     });
-  }
-
-  /**
-   * Execute a queued command through tmux
-   */
-  private executeQueuedCommand(command: any): void {
-    if (!this.tmuxStream) {
-      logger.error('Cannot execute command: Tmux stream not available');
-      this.commandQueue.fail(new RemoteCommandError('Tmux stream not available', 'NO_TMUX_STREAM'));
-      return;
-    }
-
-    if (!this.tmuxPaneId) {
-      logger.error('Cannot execute command: Tmux pane not initialized');
-      this.commandQueue.fail(new RemoteCommandError('Tmux pane not initialized', 'NO_TMUX_PANE'));
-      return;
-    }
-
-    // Wrap command with markers for output parsing
-    const startMarker = `>>>CMD_START_${command.id}>>>`;
-    const endMarker = `<<<CMD_END_${command.id}`;
-
-    // Escape the original command
-    const escapedCmd = command.command.replace(/'/g, "'\\''");
-
-    // Create a wrapper that outputs markers and captures exit code
-    const wrappedCmd = `echo '${startMarker}' && ${escapedCmd}; _ec=$?; echo '${endMarker}:'$_ec'>>>'`;
-
-    // Send to the persistent pane
-    const tmuxCmd = `send-keys -t ${this.tmuxPaneId} "${wrappedCmd.replace(/"/g, '\\"')}" Enter\n`;
-
-    logger.debug(`Executing command with markers in pane ${this.tmuxPaneId}`);
-    logger.debug(`  Command ID: ${command.id}`);
-    logger.debug(`  Original command: ${command.command}`);
-    this.tmuxStream.write(tmuxCmd);
   }
 
   /**
@@ -498,23 +315,6 @@ fi;
 
     logger.info('Disconnecting...');
 
-    // Clear timeout checker
-    if (this.timeoutCheckInterval) {
-      clearInterval(this.timeoutCheckInterval);
-      this.timeoutCheckInterval = undefined;
-    }
-
-    // Cancel all pending commands
-    this.commandQueue.cancelAll();
-
-    // Close tmux stream
-    if (this.tmuxStream) {
-      this.tmuxStream.write('exit\n');
-      this.tmuxStream.end();
-      this.tmuxStream = null;
-    }
-
-    // Close SSH connection
     if (this.ssh) {
       this.ssh.end();
       this.ssh = null;
@@ -528,7 +328,6 @@ fi;
    */
   private handleDisconnect(): void {
     this.connected = false;
-    this.parser.clear();
     this.emit('disconnected');
   }
 

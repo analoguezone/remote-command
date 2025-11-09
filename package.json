@@ -1,6 +1,6 @@
 {
   "name": "@analoguezone/remote-command-mcp",
-  "version": "1.1.0-marker-based",
+  "version": "1.2.0-pty",
   "description": "MCP server for executing commands on remote hosts seamlessly with OpenCode and other AI coding assistants",
   "main": "dist/index.js",
   "type": "module",
