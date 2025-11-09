@@ -353,6 +353,8 @@ fi;
 
         // Set up stream handlers
         stream.on('data', (data: Buffer) => {
+          const output = data.toString();
+          logger.debug(`Tmux stream data received (${data.length} bytes):`, output);
           this.parser.feed(data);
         });
 
@@ -366,6 +368,7 @@ fi;
         });
 
         // Start tmux in control mode
+        logger.debug('Sending tmux -Lremote-cmd -CC command');
         stream.write('tmux -Lremote-cmd -CC\n');
 
         // Wait for tmux to start, then create a persistent shell window
@@ -373,22 +376,30 @@ fi;
           logger.info('Tmux control mode started, creating shell window...');
 
           // Create a window with a bash shell and capture the pane ID
+          logger.debug('Sending new-window command to create pane');
           stream.write('new-window -P -F "#{pane_id}" bash\n');
 
           // Set up a one-time listener to capture the pane ID
           const paneIdListener = (data: Buffer) => {
             const output = data.toString();
+            logger.debug(`Pane ID listener received data: ${output}`);
             const match = output.match(/%(\d+)/);
             if (match) {
               this.tmuxPaneId = match[0];
               logger.info(`Created tmux pane: ${this.tmuxPaneId}`);
+            } else {
+              logger.warn('No pane ID found in output, trying again...');
             }
           };
 
           stream.once('data', paneIdListener);
 
           setTimeout(() => {
-            logger.info('Tmux setup complete');
+            if (this.tmuxPaneId) {
+              logger.info(`Tmux setup complete with pane: ${this.tmuxPaneId}`);
+            } else {
+              logger.error('Tmux setup complete but no pane ID captured!');
+            }
             resolve();
           }, 500);
         }, 500);
@@ -426,11 +437,13 @@ fi;
    */
   private executeQueuedCommand(command: any): void {
     if (!this.tmuxStream) {
+      logger.error('Cannot execute command: Tmux stream not available');
       this.commandQueue.fail(new RemoteCommandError('Tmux stream not available', 'NO_TMUX_STREAM'));
       return;
     }
 
     if (!this.tmuxPaneId) {
+      logger.error('Cannot execute command: Tmux pane not initialized');
       this.commandQueue.fail(new RemoteCommandError('Tmux pane not initialized', 'NO_TMUX_PANE'));
       return;
     }
@@ -439,8 +452,12 @@ fi;
     // Escape the command properly for send-keys
     const escapedCmd = command.command.replace(/"/g, '\\"');
     const tmuxCmd = `send-keys -t ${this.tmuxPaneId} "${escapedCmd}" Enter\n`;
-    logger.debug(`Sending to tmux pane ${this.tmuxPaneId}: ${command.command}`);
+    logger.debug(`Executing command in tmux pane ${this.tmuxPaneId}`);
+    logger.debug(`  Original command: ${command.command}`);
+    logger.debug(`  Escaped command: ${escapedCmd}`);
+    logger.debug(`  Full tmux command: ${tmuxCmd.trim()}`);
     this.tmuxStream.write(tmuxCmd);
+    logger.debug('Command sent to tmux stream');
   }
 
   /**

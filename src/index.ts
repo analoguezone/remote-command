@@ -21,6 +21,7 @@ async function main() {
   const shutdown = async () => {
     logger.info('Shutting down...');
     await server.stop();
+    logger.close();
     process.exit(0);
   };
 

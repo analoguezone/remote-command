@@ -1,6 +1,8 @@
 /**
- * Simple logger utility
+ * Simple logger utility with optional file logging
  */
+
+import * as fs from 'fs';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -11,32 +13,58 @@ export enum LogLevel {
 
 class Logger {
   private level: LogLevel = LogLevel.INFO;
+  private fileStream: fs.WriteStream | null = null;
 
   setLevel(level: LogLevel): void {
     this.level = level;
   }
 
+  setLogFile(filePath: string): void {
+    this.fileStream = fs.createWriteStream(filePath, { flags: 'a' });
+  }
+
+  private log(level: string, ...args: unknown[]): void {
+    const timestamp = new Date().toISOString();
+    const message = `[${timestamp}] [${level}] ${args.map(arg =>
+      typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+    ).join(' ')}`;
+
+    // Always write to stderr
+    console.error(message);
+
+    // Also write to file if configured
+    if (this.fileStream) {
+      this.fileStream.write(message + '\n');
+    }
+  }
+
   debug(...args: unknown[]): void {
     if (this.level <= LogLevel.DEBUG) {
-      console.error('[DEBUG]', ...args);
+      this.log('DEBUG', ...args);
     }
   }
 
   info(...args: unknown[]): void {
     if (this.level <= LogLevel.INFO) {
-      console.error('[INFO]', ...args);
+      this.log('INFO', ...args);
     }
   }
 
   warn(...args: unknown[]): void {
     if (this.level <= LogLevel.WARN) {
-      console.error('[WARN]', ...args);
+      this.log('WARN', ...args);
     }
   }
 
   error(...args: unknown[]): void {
     if (this.level <= LogLevel.ERROR) {
-      console.error('[ERROR]', ...args);
+      this.log('ERROR', ...args);
+    }
+  }
+
+  close(): void {
+    if (this.fileStream) {
+      this.fileStream.end();
     }
   }
 }
@@ -47,4 +75,10 @@ export const logger = new Logger();
 const logLevel = process.env.LOG_LEVEL?.toUpperCase();
 if (logLevel && logLevel in LogLevel) {
   logger.setLevel(LogLevel[logLevel as keyof typeof LogLevel]);
+}
+
+// Set log file from environment
+const logFile = process.env.LOG_FILE;
+if (logFile) {
+  logger.setLogFile(logFile);
 }

@@ -14,6 +14,7 @@
 
 import { EventEmitter } from 'events';
 import { ControlMessage } from '../types.js';
+import { logger } from '../utils/logger.js';
 
 export class TmuxControlParser extends EventEmitter {
   private buffer: string = '';
@@ -26,6 +27,7 @@ export class TmuxControlParser extends EventEmitter {
    */
   feed(data: string | Buffer): void {
     const text = typeof data === 'string' ? data : data.toString('utf-8');
+    logger.debug(`TmuxParser: Feeding ${text.length} chars to buffer`);
     this.buffer += text;
 
     // Process complete lines
@@ -42,17 +44,26 @@ export class TmuxControlParser extends EventEmitter {
    * Process a single line from tmux control mode
    */
   private processLine(line: string): void {
+    logger.debug(`TmuxParser: Processing line: ${line}`);
+
     // Control messages start with %
     if (line.startsWith('%')) {
+      logger.debug(`TmuxParser: Control message detected`);
       const message = this.parseControlMessage(line);
       if (message) {
+        logger.debug(`TmuxParser: Parsed control message:`, message);
         this.emit('control', message);
         this.handleControlMessage(message);
+      } else {
+        logger.warn(`TmuxParser: Failed to parse control message: ${line}`);
       }
     } else if (this.inCommand) {
       // Regular output between %begin and %end
+      logger.debug(`TmuxParser: Command output line: ${line}`);
       this.currentOutput.push(line);
       this.emit('output', line);
+    } else {
+      logger.debug(`TmuxParser: Non-control line outside command block (ignored): ${line}`);
     }
   }
 
@@ -166,13 +177,17 @@ export class TmuxControlParser extends EventEmitter {
    * Handle control messages internally
    */
   private handleControlMessage(message: ControlMessage): void {
+    logger.debug(`TmuxParser: Handling control message type: ${message.type}`);
+
     switch (message.type) {
       case 'begin':
+        logger.info(`TmuxParser: Command BEGIN on pane ${message.pane}`);
         this.inCommand = true;
         this.currentOutput = [];
         break;
 
       case 'end':
+        logger.info(`TmuxParser: Command END on pane ${message.pane}, exit code ${message.exitCode}, output lines: ${this.currentOutput.length}`);
         this.inCommand = false;
         this.emit('command-complete', {
           pane: message.pane,
@@ -183,10 +198,12 @@ export class TmuxControlParser extends EventEmitter {
         break;
 
       case 'exit':
+        logger.warn(`TmuxParser: Tmux EXIT with reason: ${message.reason}`);
         this.emit('tmux-exit', message.reason);
         break;
 
       case 'error':
+        logger.error(`TmuxParser: Tmux ERROR: ${message.data}`);
         this.emit('error', new Error(message.data));
         break;
     }
