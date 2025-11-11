@@ -84,6 +84,22 @@ export interface SessionStatus {
   systemInfo?: SystemInfo;
   connectedAt?: Date;
   commandsExecuted?: number;
+  approvalMode?: boolean;
+  pendingApprovals?: number;
+}
+
+export interface PendingCommand {
+  id: string;
+  command: string;
+  cwd?: string;
+  timestamp: Date;
+  status: 'pending' | 'approved' | 'denied' | 'executing' | 'completed';
+}
+
+export interface ApprovalAction {
+  commandId: string;
+  action: 'approve' | 'deny' | 'refine';
+  refinedCommand?: string;
 }
 
 export class RemoteCommandError extends Error {

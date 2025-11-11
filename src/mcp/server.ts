@@ -79,6 +79,21 @@ export class RemoteCommandMCPServer {
           case 'remote_status':
             return await this.handleStatus();
 
+          case 'remote_approval_mode':
+            return await this.handleApprovalMode(args as any);
+
+          case 'remote_list_pending':
+            return await this.handleListPending();
+
+          case 'remote_approve':
+            return await this.handleApprove(args as any);
+
+          case 'remote_deny':
+            return await this.handleDeny(args as any);
+
+          case 'remote_refine':
+            return await this.handleRefine(args as any);
+
           default:
             return {
               content: [
@@ -176,6 +191,74 @@ export class RemoteCommandMCPServer {
         inputSchema: {
           type: 'object',
           properties: {}
+        }
+      },
+      {
+        name: 'remote_approval_mode',
+        description: 'Enable or disable approval mode. When enabled, all commands require explicit approval before execution (similar to Warp terminal). When disabled, commands execute immediately.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            enabled: {
+              type: 'boolean',
+              description: 'Enable (true) or disable (false) approval mode'
+            }
+          },
+          required: ['enabled']
+        }
+      },
+      {
+        name: 'remote_list_pending',
+        description: 'List all commands waiting for approval. Shows command ID, command text, working directory, and timestamp.',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
+      },
+      {
+        name: 'remote_approve',
+        description: 'Approve a pending command to allow it to execute. Use the command ID from remote_list_pending.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            command_id: {
+              type: 'string',
+              description: 'The ID of the command to approve (e.g., "cmd-1")'
+            }
+          },
+          required: ['command_id']
+        }
+      },
+      {
+        name: 'remote_deny',
+        description: 'Deny a pending command to prevent it from executing. The command will be cancelled.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            command_id: {
+              type: 'string',
+              description: 'The ID of the command to deny (e.g., "cmd-1")'
+            }
+          },
+          required: ['command_id']
+        }
+      },
+      {
+        name: 'remote_refine',
+        description: 'Refine a pending command by replacing it with a modified version. The original command is denied and a new one is queued for approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            command_id: {
+              type: 'string',
+              description: 'The ID of the command to refine (e.g., "cmd-1")'
+            },
+            new_command: {
+              type: 'string',
+              description: 'The refined/corrected command to replace the original'
+            }
+          },
+          required: ['command_id', 'new_command']
         }
       }
     ];
@@ -360,6 +443,8 @@ export class RemoteCommandMCPServer {
 Host: ${status.user}@${status.remoteHost}
 Connected at: ${status.connectedAt?.toISOString()}
 Commands executed: ${status.commandsExecuted}
+Approval mode: ${status.approvalMode ? 'ENABLED' : 'DISABLED'}
+Pending approvals: ${status.pendingApprovals || 0}
 
 System Info:
 ${JSON.stringify(status.systemInfo, null, 2)}`;
@@ -369,6 +454,186 @@ ${JSON.stringify(status.systemInfo, null, 2)}`;
         {
           type: 'text',
           text: statusText
+        }
+      ]
+    };
+  }
+
+  /**
+   * Handle remote_approval_mode tool
+   */
+  private async handleApprovalMode(args: { enabled: boolean }) {
+    this.session.setApprovalMode(args.enabled);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: args.enabled
+            ? '✓ Approval mode ENABLED\n\nAll commands will now require explicit approval before execution.\nUse remote_list_pending to see pending commands and remote_approve/remote_deny to approve or deny them.'
+            : '✓ Approval mode DISABLED\n\nCommands will now execute immediately without requiring approval.'
+        }
+      ]
+    };
+  }
+
+  /**
+   * Handle remote_list_pending tool
+   */
+  private async handleListPending() {
+    const approvalManager = this.session.getApprovalManager();
+    const pending = approvalManager.getPendingCommands();
+
+    if (pending.length === 0) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'No pending commands waiting for approval.'
+          }
+        ]
+      };
+    }
+
+    const list = pending.map(cmd => {
+      const timeAgo = Math.round((Date.now() - cmd.timestamp.getTime()) / 1000);
+      return `[${cmd.id}] ${cmd.command}${cmd.cwd ? ` (cwd: ${cmd.cwd})` : ''}\n  Status: ${cmd.status} | Queued: ${timeAgo}s ago`;
+    }).join('\n\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Pending Commands (${pending.length}):\n\n${list}\n\nUse remote_approve or remote_deny with the command ID to proceed.`
+        }
+      ]
+    };
+  }
+
+  /**
+   * Handle remote_approve tool
+   */
+  private async handleApprove(args: { command_id: string }) {
+    const approvalManager = this.session.getApprovalManager();
+    const cmd = approvalManager.getCommand(args.command_id);
+
+    if (!cmd) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: Command ${args.command_id} not found. Use remote_list_pending to see available commands.`
+          }
+        ],
+        isError: true
+      };
+    }
+
+    const success = approvalManager.approve(args.command_id);
+
+    if (!success) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: Could not approve command ${args.command_id}. It may have already been approved or denied.`
+          }
+        ],
+        isError: true
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `✓ Command approved: ${cmd.command}\n\nThe command will now execute.`
+        }
+      ]
+    };
+  }
+
+  /**
+   * Handle remote_deny tool
+   */
+  private async handleDeny(args: { command_id: string }) {
+    const approvalManager = this.session.getApprovalManager();
+    const cmd = approvalManager.getCommand(args.command_id);
+
+    if (!cmd) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: Command ${args.command_id} not found. Use remote_list_pending to see available commands.`
+          }
+        ],
+        isError: true
+      };
+    }
+
+    const success = approvalManager.deny(args.command_id);
+
+    if (!success) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: Could not deny command ${args.command_id}. It may have already been approved or denied.`
+          }
+        ],
+        isError: true
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `✓ Command denied: ${cmd.command}\n\nThe command has been cancelled and will not execute.`
+        }
+      ]
+    };
+  }
+
+  /**
+   * Handle remote_refine tool
+   */
+  private async handleRefine(args: { command_id: string; new_command: string }) {
+    const approvalManager = this.session.getApprovalManager();
+    const cmd = approvalManager.getCommand(args.command_id);
+
+    if (!cmd) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: Command ${args.command_id} not found. Use remote_list_pending to see available commands.`
+          }
+        ],
+        isError: true
+      };
+    }
+
+    const success = approvalManager.refine(args.command_id, args.new_command);
+
+    if (!success) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error: Could not refine command ${args.command_id}. It may have already been approved or denied.`
+          }
+        ],
+        isError: true
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `✓ Command refined\n\nOriginal: ${cmd.command}\nNew: ${args.new_command}\n\nThe refined command has been queued and requires approval. Use remote_list_pending to see it.`
         }
       ]
     };

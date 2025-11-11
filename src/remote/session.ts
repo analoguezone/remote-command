@@ -10,6 +10,7 @@ import * as path from 'path';
 import { EventEmitter } from 'events';
 import { TmuxControlParser, TmuxControlCommands } from './tmux-control.js';
 import { CommandQueue } from './command-queue.js';
+import { ApprovalManager } from './approval-manager.js';
 import {
   SSHOptions,
   ExecOptions,
@@ -26,6 +27,7 @@ export class RemoteSession extends EventEmitter {
   private tmuxStream: ClientChannel | null = null;
   private parser: TmuxControlParser;
   private commandQueue: CommandQueue;
+  private approvalManager: ApprovalManager;
   private connected: boolean = false;
   private currentHost?: string;
   private currentUser?: string;
@@ -39,8 +41,10 @@ export class RemoteSession extends EventEmitter {
     super();
     this.parser = new TmuxControlParser();
     this.commandQueue = new CommandQueue();
+    this.approvalManager = new ApprovalManager();
 
     this.setupParsers();
+    this.setupApprovalManager();
   }
 
   /**
@@ -79,6 +83,21 @@ export class RemoteSession extends EventEmitter {
     // Queue events
     this.commandQueue.on('executing', (command) => {
       this.executeQueuedCommand(command);
+    });
+  }
+
+  /**
+   * Set up approval manager event handlers
+   */
+  private setupApprovalManager(): void {
+    this.approvalManager.on('approved', (cmd) => {
+      logger.info(`Command approved and ready for execution: ${cmd.id}`);
+      this.approvalManager.emit(`approved-${cmd.id}`);
+    });
+
+    this.approvalManager.on('denied', (cmd) => {
+      logger.info(`Command denied: ${cmd.id}`);
+      this.approvalManager.emit(`denied-${cmd.id}`);
     });
   }
 
@@ -416,6 +435,25 @@ fi;
     }
 
     logger.debug(`Executing command: ${command}`);
+
+    // Check if approval is needed
+    const approvalId = this.approvalManager.requestApproval(command, options.cwd);
+    if (approvalId) {
+      logger.info(`Command requires approval: ${approvalId}`);
+
+      // Wait for approval
+      const approved = await this.approvalManager.waitForApproval(approvalId);
+      if (!approved) {
+        throw new RemoteCommandError(
+          `Command denied: ${command}`,
+          'COMMAND_DENIED'
+        );
+      }
+
+      logger.info(`Command approved, proceeding with execution: ${approvalId}`);
+      this.approvalManager.markExecuting(approvalId);
+    }
+
     this.commandsExecuted++;
 
     // Build full command with cwd if specified
@@ -425,11 +463,18 @@ fi;
     }
 
     // Enqueue command
-    return this.commandQueue.enqueue(fullCommand, {
+    const result = await this.commandQueue.enqueue(fullCommand, {
       timeout: options.timeout,
       cwd: options.cwd,
       env: options.env
     });
+
+    // Mark as completed if it was an approved command
+    if (approvalId) {
+      this.approvalManager.markCompleted(approvalId);
+    }
+
+    return result;
   }
 
   /**
@@ -522,7 +567,30 @@ fi;
       user: this.currentUser,
       systemInfo: this.systemInfo,
       connectedAt: this.connectedAt,
-      commandsExecuted: this.commandsExecuted
+      commandsExecuted: this.commandsExecuted,
+      approvalMode: this.approvalManager.isApprovalModeEnabled(),
+      pendingApprovals: this.approvalManager.getPendingCount()
     };
+  }
+
+  /**
+   * Get approval manager for direct access
+   */
+  getApprovalManager(): ApprovalManager {
+    return this.approvalManager;
+  }
+
+  /**
+   * Enable or disable approval mode
+   */
+  setApprovalMode(enabled: boolean): void {
+    this.approvalManager.setApprovalMode(enabled);
+  }
+
+  /**
+   * Check if approval mode is enabled
+   */
+  isApprovalModeEnabled(): boolean {
+    return this.approvalManager.isApprovalModeEnabled();
   }
 }
