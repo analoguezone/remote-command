@@ -439,19 +439,13 @@ fi;
     // Check if approval is needed
     const approvalId = this.approvalManager.requestApproval(command, options.cwd);
     if (approvalId) {
-      logger.info(`Command requires approval: ${approvalId}`);
-
-      // Wait for approval
-      const approved = await this.approvalManager.waitForApproval(approvalId);
-      if (!approved) {
-        throw new RemoteCommandError(
-          `Command denied: ${command}`,
-          'COMMAND_DENIED'
-        );
-      }
-
-      logger.info(`Command approved, proceeding with execution: ${approvalId}`);
-      this.approvalManager.markExecuting(approvalId);
+      // Command needs approval - throw special error immediately
+      logger.info(`Command requires approval: ${approvalId} - ${command}`);
+      throw new RemoteCommandError(
+        `AWAITING_APPROVAL:${approvalId}:${command}`,
+        'NEEDS_APPROVAL',
+        { commandId: approvalId, command, cwd: options.cwd }
+      );
     }
 
     this.commandsExecuted++;
@@ -469,12 +463,46 @@ fi;
       env: options.env
     });
 
-    // Mark as completed if it was an approved command
-    if (approvalId) {
-      this.approvalManager.markCompleted(approvalId);
+    return result;
+  }
+
+  /**
+   * Execute an approved command by ID
+   */
+  async executeApproved(commandId: string, timeout?: number): Promise<CommandResult> {
+    const cmd = this.approvalManager.getCommand(commandId);
+    if (!cmd) {
+      throw new RemoteCommandError('Command not found', 'NOT_FOUND');
     }
 
-    return result;
+    if (cmd.status !== 'approved') {
+      throw new RemoteCommandError('Command not approved', 'NOT_APPROVED');
+    }
+
+    logger.info(`Executing approved command: ${commandId} - ${cmd.command}`);
+    this.approvalManager.markExecuting(commandId);
+
+    try {
+      this.commandsExecuted++;
+
+      // Build full command with cwd if specified
+      let fullCommand = cmd.command;
+      if (cmd.cwd) {
+        fullCommand = TmuxControlCommands.execInDir(cmd.cwd, fullCommand);
+      }
+
+      // Execute command
+      const result = await this.commandQueue.enqueue(fullCommand, {
+        timeout: timeout,
+        cwd: cmd.cwd
+      });
+
+      this.approvalManager.markCompleted(commandId);
+      return result;
+    } catch (error) {
+      this.approvalManager.deny(commandId);
+      throw error;
+    }
   }
 
   /**

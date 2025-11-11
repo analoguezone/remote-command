@@ -217,13 +217,13 @@ export class RemoteCommandMCPServer {
       },
       {
         name: 'remote_approve',
-        description: 'Approve a pending command to allow it to execute. Use the command ID from remote_list_pending. Use "all" to approve all pending commands at once.',
+        description: 'Approve and execute a pending command. The command will run immediately after approval. Returns the command output.',
         inputSchema: {
           type: 'object',
           properties: {
             command_id: {
               type: 'string',
-              description: 'The ID of the command to approve (e.g., "cmd-1") or "all" to approve all pending commands'
+              description: 'The ID of the command to approve and execute (e.g., "cmd-1")'
             }
           },
           required: ['command_id']
@@ -409,7 +409,23 @@ export class RemoteCommandMCPServer {
         isError: result.exitCode !== 0
       };
     } catch (error: any) {
-      // Check if this is an approval timeout/waiting error
+      // Check if this needs approval (non-blocking)
+      if (error.code === 'NEEDS_APPROVAL') {
+        const details = error.details || {};
+        const commandId = details.commandId;
+        const command = details.command;
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `⏸️  Command requires approval:\n\n  ${command}\n\n[${commandId}] Approve with remote_approve or deny with remote_deny`
+            }
+          ]
+        };
+      }
+
+      // Check if this is a denial
       if (error.code === 'COMMAND_DENIED') {
         return {
           content: [
@@ -572,14 +588,43 @@ ${JSON.stringify(status.systemInfo, null, 2)}`;
       };
     }
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `✓ Command approved: ${cmd.command}\n\nThe command will now execute.`
-        }
-      ]
-    };
+    // Execute the approved command immediately
+    try {
+      logger.info(`Executing approved command: ${args.command_id}`);
+      const result = await this.session.executeApproved(args.command_id);
+
+      // Format output
+      let output = `✓ Command approved and executed: ${cmd.command}\n\n`;
+      if (result.stdout) {
+        output += result.stdout;
+      }
+      if (result.stderr) {
+        output += '\n--- stderr ---\n' + result.stderr;
+      }
+      if (result.exitCode !== 0) {
+        output += `\n--- Exit code: ${result.exitCode} ---`;
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: output
+          }
+        ],
+        isError: result.exitCode !== 0
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error executing approved command: ${error.message}`
+          }
+        ],
+        isError: true
+      };
+    }
   }
 
   /**
