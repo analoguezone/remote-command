@@ -14,6 +14,17 @@ export class ApprovalManager extends EventEmitter {
   private pendingCommands: Map<string, PendingCommand> = new Map();
   private commandCounter: number = 0;
 
+  constructor() {
+    super();
+
+    // Check environment variable for default approval mode
+    const envApprovalMode = process.env.APPROVAL_MODE?.toLowerCase();
+    if (envApprovalMode === 'true' || envApprovalMode === '1' || envApprovalMode === 'on') {
+      this.approvalMode = true;
+      logger.info('Approval mode enabled by APPROVAL_MODE environment variable');
+    }
+  }
+
   /**
    * Enable or disable approval mode
    */
@@ -195,6 +206,36 @@ export class ApprovalManager extends EventEmitter {
   getPendingCount(): number {
     return Array.from(this.pendingCommands.values())
       .filter(cmd => cmd.status === 'pending').length;
+  }
+
+  /**
+   * Approve all pending commands
+   */
+  approveAll(): number {
+    let count = 0;
+    for (const [id, cmd] of this.pendingCommands.entries()) {
+      if (cmd.status === 'pending') {
+        this.approve(id);
+        count++;
+      }
+    }
+    logger.info(`Approved ${count} pending commands`);
+    return count;
+  }
+
+  /**
+   * Deny all pending commands
+   */
+  denyAll(): number {
+    let count = 0;
+    for (const [id, cmd] of this.pendingCommands.entries()) {
+      if (cmd.status === 'pending') {
+        this.deny(id);
+        count++;
+      }
+    }
+    logger.info(`Denied ${count} pending commands`);
+    return count;
   }
 
   /**

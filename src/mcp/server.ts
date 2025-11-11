@@ -217,13 +217,13 @@ export class RemoteCommandMCPServer {
       },
       {
         name: 'remote_approve',
-        description: 'Approve a pending command to allow it to execute. Use the command ID from remote_list_pending.',
+        description: 'Approve a pending command to allow it to execute. Use the command ID from remote_list_pending. Use "all" to approve all pending commands at once.',
         inputSchema: {
           type: 'object',
           properties: {
             command_id: {
               type: 'string',
-              description: 'The ID of the command to approve (e.g., "cmd-1")'
+              description: 'The ID of the command to approve (e.g., "cmd-1") or "all" to approve all pending commands'
             }
           },
           required: ['command_id']
@@ -231,13 +231,13 @@ export class RemoteCommandMCPServer {
       },
       {
         name: 'remote_deny',
-        description: 'Deny a pending command to prevent it from executing. The command will be cancelled.',
+        description: 'Deny a pending command to prevent it from executing. The command will be cancelled. Use "all" to deny all pending commands at once.',
         inputSchema: {
           type: 'object',
           properties: {
             command_id: {
               type: 'string',
-              description: 'The ID of the command to deny (e.g., "cmd-1")'
+              description: 'The ID of the command to deny (e.g., "cmd-1") or "all" to deny all pending commands'
             }
           },
           required: ['command_id']
@@ -409,6 +409,19 @@ export class RemoteCommandMCPServer {
         isError: result.exitCode !== 0
       };
     } catch (error: any) {
+      // Check if this is an approval timeout/waiting error
+      if (error.code === 'COMMAND_DENIED') {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `❌ Command denied by user`
+            }
+          ],
+          isError: true
+        };
+      }
+
       return {
         content: [
           {
@@ -515,6 +528,22 @@ ${JSON.stringify(status.systemInfo, null, 2)}`;
    */
   private async handleApprove(args: { command_id: string }) {
     const approvalManager = this.session.getApprovalManager();
+
+    // Special case: approve all
+    if (args.command_id.toLowerCase() === 'all') {
+      const count = approvalManager.approveAll();
+      return {
+        content: [
+          {
+            type: 'text',
+            text: count > 0
+              ? `✓ Approved ${count} pending command(s)\n\nAll commands will now execute.`
+              : 'No pending commands to approve.'
+          }
+        ]
+      };
+    }
+
     const cmd = approvalManager.getCommand(args.command_id);
 
     if (!cmd) {
@@ -558,6 +587,22 @@ ${JSON.stringify(status.systemInfo, null, 2)}`;
    */
   private async handleDeny(args: { command_id: string }) {
     const approvalManager = this.session.getApprovalManager();
+
+    // Special case: deny all
+    if (args.command_id.toLowerCase() === 'all') {
+      const count = approvalManager.denyAll();
+      return {
+        content: [
+          {
+            type: 'text',
+            text: count > 0
+              ? `✓ Denied ${count} pending command(s)\n\nAll commands have been cancelled.`
+              : 'No pending commands to deny.'
+          }
+        ]
+      };
+    }
+
     const cmd = approvalManager.getCommand(args.command_id);
 
     if (!cmd) {
